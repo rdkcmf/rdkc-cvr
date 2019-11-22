@@ -1366,7 +1366,7 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
 	}
 
 	//Check is OD frame upload is enabled via RFC
-	od_frame_upload_enabled = check_enabled_rfc_feature(RFC_OD_FRAMES_UPLOAD, OD_FRAMES_UPLOAD);
+	od_frame_upload_enabled = check_enabled_rfc_feature(RFCFILE, OD_FRAMES_UPLOAD);
 	
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): od_frame_upload_enabled is :  %d \n", __FILE__, __LINE__, od_frame_upload_enabled);
 

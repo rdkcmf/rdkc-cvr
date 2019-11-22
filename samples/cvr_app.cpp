@@ -2011,7 +2011,7 @@ bool IsGSTEnabledInRFC(char* file )
                 }
         }
         else {
-                printf("RFC_CVR_AUDIO file is not available\n");
+                printf("RFCFILE file is not available\n");
                 return false;
         }
 }

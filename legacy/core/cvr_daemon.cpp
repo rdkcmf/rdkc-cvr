@@ -1098,9 +1098,9 @@ int CVR::cvr_set_audio()
         int prev_cvr_audio_status =  cvr_audio_status;
 #ifndef XCAM2
         /* Check if RFC configuration file exists */
-        if( RDKC_SUCCESS == IsRFCFileAvailable(RFC_CVR_AUDIO) ) {
+        if( RDKC_SUCCESS == IsRFCFileAvailable(RFCFILE) ) {
                 /* Get the value from RFC file */
-                if( RDKC_SUCCESS == GetValueFromRFCFile(RFC_CVR_AUDIO, CVR_AUDIO, value) ) {
+                if( RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, CVR_AUDIO, value) ) {
                         if( strcmp(value, RDKC_TRUE) == 0 ) {
 #endif
                                 if (RDKC_SUCCESS != rdkc_get_user_setting(CVR_AUDIO_STATUS, usr_value)) {
@@ -1258,7 +1258,7 @@ int CVR::cvr_init(char *argv,CloudRecorderConf *pCloudRecorderInfo)
                 return CVR_FAILURE;
         }
 
-	smartTnEnabled = check_enabled_rfc_feature(RFC_SMART_TN_UPLOAD, SMART_TN_UPLOAD);
+	smartTnEnabled = check_enabled_rfc_feature(RFCFILE, SMART_TN_UPLOAD);
 	if(smartTnEnabled) {
 		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Smart thumbnail is enabled in RFC. smartTnEnabled: \n", __FILE__, __LINE__, smartTnEnabled);
 	}
@@ -1267,9 +1267,9 @@ int CVR::cvr_init(char *argv,CloudRecorderConf *pCloudRecorderInfo)
 	}
 
 	//Check is OD frame upload is enabled via RFC
-	od_frame_upload_enabled = check_enabled_rfc_feature(RFC_OD_FRAMES_UPLOAD, OD_FRAMES_UPLOAD);
+	od_frame_upload_enabled = check_enabled_rfc_feature(RFCFILE, OD_FRAMES_UPLOAD);
 	//Check if smart thumbnail is enabled via RFC
-	//smartTnEnabled = check_enabled_rfc_feature(RFC_SMART_TN_UPLOAD, SMART_TN_UPLOAD);
+	//smartTnEnabled = check_enabled_rfc_feature(RFCFILE, SMART_TN_UPLOAD);
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): od_frame_upload_enabled is :  %d \n", __FILE__, __LINE__, od_frame_upload_enabled);
 
 #ifdef RTMSG
