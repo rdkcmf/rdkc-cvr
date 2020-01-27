@@ -54,7 +54,7 @@ std::queue<vai_result_t, std::list<vai_result_t> > CVR::rtmessageCVRQ;
 std::mutex CVR::rtmessageCVRMutex;
 #ifdef RTMSG
 bool CVR::rtmessageCVRThreadExit;
-volatile bool CVR::smartTnEnabled = false;
+volatile bool CVR::smartTnEnabled = true;
 #endif
 std::condition_variable CVR::msgCv;
 RdkCPluginFactory* CVR::temp_factory = CreatePluginFactoryInstance(); //creating plugin factory instance
@@ -1159,11 +1159,11 @@ void CVR::cvr_init_audio_stream()
     }
 }
 
-/** @description: set cvr audio
+/** @description: check cvr audio
  *  @param[in] void
- *  @return: int
+ *  @return: void
  */
-int CVR::cvr_check_rfcparams()
+void CVR::cvr_check_audio()
 {
         /* set cvr audio through RFC files */
         char value[MAX_SIZE] = {0};
@@ -1171,78 +1171,20 @@ int CVR::cvr_check_rfcparams()
         char *configParam = NULL;
         int prev_cvr_audio_status =  cvr_audio_status;
 
-#ifndef XCAM2
-        /* Check if RFC configuration file exists */
-        if( RDKC_SUCCESS == IsRFCFileAvailable(RFCFILE) ) {
-                /* Get the value from RFC file */
-                if( RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, CVR_AUDIO, value) ) {
-                        if( strcmp(value, RDKC_TRUE) == 0 ) {
-#endif
-                                if (RDKC_SUCCESS != rdkc_get_user_setting(CVR_AUDIO_STATUS, usr_value)) {
-                                        configParam = (char*)rdkc_envGet(CVR_AUDIO_STATUS);
-                                }
-				else {
-                                        configParam = usr_value;
-                                }
-                                if(strcmp(configParam, RDKC_TRUE) == 0) {
-                                        cvr_audio_status = CVR_AUDIO_ENABLED;
-                                        RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
-                                }
-				else {
-                                        cvr_audio_status = CVR_AUDIO_DISABLED;
-                                        RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
-                                }
-#ifndef XCAM2
-                        }
-                        else if( strcmp(value, RDKC_FALSE) == 0 ) {
-                                cvr_audio_status = CVR_AUDIO_DISABLED;
-                                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
-                        }
-                }
-		else
-		{	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): cvr_set_audio : cvr audio feature is not available in rfc file.\n",__FILE__, __LINE__);
-			cvr_audio_status = CVR_AUDIO_DISABLED;
-		}
-#endif
-
-                //RFC check for kvs abs timestamp
-                memset(value,0,MAX_SIZE);
-                if(RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, KVS_ABSTIMESTAMP, value)) {
-                        if( strcmp(value, RDKC_TRUE) == 0 ) {
-                                kvsclip_abstime = 1;
-                        } else if( strcmp(value, RDKC_FALSE) == 0 ) {
-                                kvsclip_abstime=0;
-                        } else {
-                                kvsclip_abstime=0;
-                        }
-                } else {
-                        kvsclip_abstime=0;
-                }
-
-                //RFC check for kvs live mode
-                memset(value,0,MAX_SIZE);
-                if(RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, KVS_LIVEMODE, value)) {
-                        if( strcmp(value, RDKC_TRUE) == 0 ) {
-                                kvsclip_livemode = 1;
-                        } else if( strcmp(value, RDKC_FALSE) == 0 ) {
-                                kvsclip_livemode = 0;
-                        } else {
-                                kvsclip_livemode = 0;
-                        }
-                } else {
-                        kvsclip_livemode = 0;
-                }
-                /* if the get value from rfc fails, dont do anything. use defult settings done by polling config. */
-#ifndef XCAM2
+        if (RDKC_SUCCESS != rdkc_get_user_setting(CVR_AUDIO_STATUS, usr_value)) {
+                configParam = (char*)rdkc_envGet(CVR_AUDIO_STATUS);
+        } else {
+                configParam = usr_value;
         }
-	else {
-                /* if the rfc files are not available, disable CVR audio */
+
+        if(strcmp(configParam, RDKC_TRUE) == 0) {
+                cvr_audio_status = CVR_AUDIO_ENABLED;
+                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
+        } else {
                 cvr_audio_status = CVR_AUDIO_DISABLED;
-                kvsclip_abstime = 0;
-                kvsclip_livemode = 0;
-                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable since rfc file is not available\n", __FILE__, __LINE__);
+                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
         }
-#endif
+
         if( prev_cvr_audio_status != cvr_audio_status ) {
                 if( CVR_AUDIO_ENABLED == cvr_audio_status ) {
                         RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): CVR audio is enabled.\n", __FILE__, __LINE__);
@@ -1260,7 +1202,6 @@ int CVR::cvr_check_rfcparams()
                                 if( NULL != recorder ){
                                     recorder->StreamClose(cvr_flag);
                                 }
-
                                 cvr_flag &= ~RDKC_STRAM_FLAG_AUDIO;
                             }
                         }
@@ -1389,18 +1330,6 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
                 return CVR_FAILURE;
         }
 
-#ifdef XCAM2
-        smartTnEnabled = true;
-#else
-        smartTnEnabled = check_enabled_rfc_feature(RFCFILE, SMART_TN_UPLOAD);
-#endif
-	if(smartTnEnabled) {
-		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Smart thumbnail is enabled in RFC. smartTnEnabled: \n", __FILE__, __LINE__, smartTnEnabled);
-	}
-	else {
-		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Smart thumbnail is disabled in RFC. smartTnEnabled: %d \n", __FILE__, __LINE__, smartTnEnabled);
-	}
-
 	//Check is OD frame upload is enabled via RFC
 	od_frame_upload_enabled = check_enabled_rfc_feature(RFCFILE, OD_FRAMES_UPLOAD);
 	
@@ -1422,7 +1351,7 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
 #endif
 
         // Check camera has polling cvr config from server?
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Wait for xfinity polling config done.Timeout is %d seconds.\n", __FILE__, __LINE__, check_polling_config_timeout);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Wait for json polling config done.Timeout is %d seconds.\n", __FILE__, __LINE__, check_polling_config_timeout);
         while (check_polling_config_timeout > 0 && !term_flag)
         {
                 if (0 == access(XFINITY_POLLING_SEQ_FILE, F_OK))
@@ -1451,8 +1380,8 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
                 system(cmd);
         }
 
-    /* Permanently enabling audio in the device */
-    cvr_enable_audio(true);
+        /* Permanently enabling audio in the device */
+        cvr_enable_audio(true);
 }
 
 void CVR::notify_smt_TN(cvr_clip_status_t status, const char* clip_name, unsigned int event_ts = DEFAULT_EVT_TSTAMP)
@@ -1559,8 +1488,8 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 			local_stream_err = 0;
 		}
 
-		//check cvr rfc params
-		cvr_check_rfcparams();
+                //check cvr audio
+                cvr_check_audio();
 
 		// CVR not enabled
 		if (CloudRecorderInfo->enable == 0)
