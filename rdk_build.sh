@@ -59,6 +59,9 @@ fi
 export PLATFORM_SDK=${RDK_TOOLCHAIN_PATH}
 export FSROOT=$RDK_FSROOT_PATH
 
+#build cvr with frame upload
+export KVS_FRAMEUPLOAD=no
+
 # parse arguments
 INITIAL_ARGS=$@
 
@@ -72,9 +75,6 @@ function usage()
     echo "Supported actions:"
     echo "      configure, clean, build (DEFAULT), rebuild, install"
 }
-
-ARGS=$@
-
 
 # This Function to perform pre-build configurations before building plugin code
 function configure()
@@ -100,9 +100,6 @@ function clean()
 # This Function peforms the build to generate the webrtc.node
 function build()
 {
-    configure
-    echo "Configure is done"
-
     cd $RDK_SOURCE_PATH
 
     echo "RDK_SOURCE_PATH :::::: $RDK_SOURCE_PATH"
@@ -142,20 +139,28 @@ function install()
 
     make install
 
-    if [ -f $RDK_SOURCE_PATH/kvs/upload/kvs_log_configuration ] ; then
+    if [ -f $RDK_SOURCE_PATH/kvs/clipupload/upload/kvs_log_configuration ] ; then
         echo "Installing amazon-kinesis-video-streams-producer-sdk log configuration"
-        cp -vf $RDK_SOURCE_PATH/kvs/upload/kvs_log_configuration $RDK_FSROOT_PATH/etc
+        cp -vf $RDK_SOURCE_PATH/kvs/clipupload/upload/kvs_log_configuration $RDK_FSROOT_PATH/etc
     fi
  
     echo "CVR Installation is done"
+}
+
+function setframeuploadmode()
+{
+    echo "setframeuploadmode - Frame upload enabled build"
+    export KVS_FRAMEUPLOAD=yes
 }
 
 # run the logic
 #these args are what left untouched after parse_args
 HIT=false
 
-for i in "$ARGS"; do
+for i in "$@"; do
+    echo "$i"
     case $i in
+        enableframeupload)  HIT=true; setframeuploadmode ;;
         configure)  HIT=true; configure ;;
         clean)      HIT=true; clean ;;
         build)      HIT=true; build ;;
