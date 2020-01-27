@@ -1,3 +1,4 @@
+/**
 ##########################################################################
 # If not stated otherwise in this file or this component's LICENSE
 # file the following copyright and licenses apply:
@@ -16,46 +17,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
+**/
+#ifndef _KVS_UPLOAD_API_H
+#define _KVS_UPLOAD_API_H
 
-# Add dependent libraries
-USE_CONFIGMGR = yes
-USE_RTMESSAGE = yes
-USE_HTTPCLIENT = yes
-USE_GST = yes
-USE_KINESIS_PRODUCER = yes
+#include "kvsuploadCallback.h"
 
-include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
+int kvsInit(kvsUploadCallback* callback, int stream_id);
+int kvsStreamInit(unsigned short& audioenabled, unsigned short& abstimestamp, unsigned short& livemode, unsigned short& contentchangestatus);
+int kvsUploadFrames(unsigned short& audioenabled, unsigned short& abstimestamp, unsigned short& livemode, RDKC_FrameInfo frameData, char* fileName, bool isEOF = false );
 
-SRCS  += kvsupload.cpp memorystats.cpp cvrUploadAPI.cpp
-
-CFLAGS  += -fPIC
-CFLAGS+= -I$(RDK_PROJECT_ROOT_PATH)/cvr/upload/
-CFLAGS+= -DXFINITY_SUPPORT
-
-ifeq ($(XCAM_MODEL), SCHC2)
-CFLAGS += -DUSE_MFRLIB
-endif
-
-OBJS  := $(SRCS:.cpp=.o)
-
-BIN   =   libcvrupload_kvs.so
-
-all: $(BIN) install
-
-INSTALL = install
-RM = rm
-
-$(OBJS): %.o: %.cpp
-	$(CXX) -c $(CFLAGS) $< -std=c++14 -o $@
-
-$(BIN): $(OBJS)
-	$(CXX) $(CFLAGS) -shared -o $@ $(OBJS) $(LIBFLAGS)
-clean:
-	$(RM) -rf $(OBJS) *~ $(BIN)
-
-install:
-	$(INSTALL) -D $(BIN) ${RDK_FSROOT_PATH}/usr/lib/$(BIN)
-
-uninstall:
-	$(RM) -f $(RDK_FSROOT_PATH)/usr/lib/$(BIN)
-
+#endif

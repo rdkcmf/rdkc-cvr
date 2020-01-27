@@ -16,10 +16,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-
-SUBDIRS += upload
+SUBDIRS += legacy/upload
+SUBDIRS += legacy/core
 SUBDIRS += polling
-SUBDIRS += core
 ifneq ($(XCAM_MODEL), SCHC2)
 #SUBDIRS += samples
 endif

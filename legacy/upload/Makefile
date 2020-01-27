@@ -16,19 +16,44 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-ifeq ($(KVS_FRAMEUPLOAD), no)
-SUBDIRS += clipupload/upload
-SUBDIRS += clipupload/core
-else
-SUBDIRS += frameupload
-endif
-all:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@ || exit 1; \
-	done
 
-install clean uninstall mrproper:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@; \
-	done
+# Add dependent libraries
+USE_CONFIGMGR = yes
+USE_RTMESSAGE = yes
+USE_HTTPCLIENT = yes
+
+include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
+
+SRCS  += cvrUploadAPI.cpp cvrUpload.cpp
+
+CFLAGS  += -fPIC
+CFLAGS+= -I$(RDK_PROJECT_ROOT_PATH)/cvr/legacy/upload/
+CFLAGS+= -DXFINITY_SUPPORT
+
+ifeq ($(XCAM_MODEL), SCHC2)
+CFLAGS += -DUSE_MFRLIB
+endif
+
+OBJS  := $(SRCS:.cpp=.o)
+
+BIN   =   libcvrupload.so
+
+all: $(BIN) install
+
+INSTALL = install
+RM = rm
+
+$(OBJS): %.o: %.cpp
+	$(CXX) -c $(CFLAGS) $< -std=c++11 -o $@
+
+$(BIN): $(OBJS)
+	$(CXX) $(CFLAGS) -shared -o $@ $(OBJS) $(LIBFLAGS)
+clean:
+	$(RM) -rf $(OBJS) *~ $(BIN)
+
+install:
+	$(INSTALL) -D $(BIN) ${RDK_FSROOT_PATH}/usr/lib/$(BIN)
+
+uninstall:
+	$(RM) -f $(RDK_FSROOT_PATH)/usr/lib/$(BIN)
 

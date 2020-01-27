@@ -26,24 +26,22 @@ USE_RTMESSAGE = yes
 USE_PLUGINS = yes
 USE_BREAKPAD = yes
 USE_HTTPCLIENT = yes
-USE_GST = yes
 USE_STREAMUTILS = yes
 USE_SYSUTILS = yes
+USE_GST = yes
 
 include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
-CFLAGS += -DWITH_GST
 LIBS = $(LIBFLAGS)
 
-CFLAGS  += -I$(RDK_PROJECT_ROOT_PATH)/cvr/upload/
-CFLAGS  += -I$(RDK_PROJECT_ROOT_PATH)/cvr/core/
-
+CFLAGS  += -I$(RDK_PROJECT_ROOT_PATH)/cvr/kvs/clipupload/upload/
+CFLAGS  += -I$(RDK_PROJECT_ROOT_PATH)/cvr/kvs/clipupload/core/
 CFLAGS  += -DRTMSG
 CFLAGS  += -std=c++11
 CFLAGS  += -Wno-error
 CFLAGS	+= -pthread
 CFLAGS  += -fpermissive
 
-LIBS    += -L$(RDK_PROJECT_ROOT_PATH)/cvr/upload -lcvrupload
+LIBS    += -L$(RDK_PROJECT_ROOT_PATH)/cvr/kvs/upload -lcvrupload_kvs
 ifeq ($(XCAM_MODEL), SCHC2)
 CFLAGS +=-DXCAM2
 endif
@@ -60,7 +58,7 @@ SRC  += cvr_daemon.cpp
 
 OBJ = $(SRC:.cpp=.o)
 
-TARGET = cvr_daemon
+TARGET = cvr_daemon_kvs
 
 all: $(OBJ) $(TARGET) install
 
