@@ -203,7 +203,7 @@ class CVR {
       int cvr_read_config(RdkCCloudRecorderConf *pCloudRecorderInfo);
 #endif
       int cvr_enable_audio(bool val);
-      int cvr_check_rfcparams();
+      void cvr_check_audio();
 
       int get_quiet_interval();
       int cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t cvr_starttime);
