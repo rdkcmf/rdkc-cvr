@@ -292,6 +292,8 @@ class CVR {
       static bool rtmessageCVRThreadExit;
       static void push_msg(vai_result_t vai_result_recved_rtmsg);
       static void pop_msg(vai_result_t *vai_result_recved_rtmsg);
+      //Callback function when the cvrStats configuration message is received
+      static void on_message_cvrStats(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure);
       //Callback finction for topics on CVR
       static void on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure);
       //Callback function for topics on smart thumbnail 
