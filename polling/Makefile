@@ -22,6 +22,7 @@ USE_CONFIGMGR = yes
 USE_HTTPCLIENT = yes
 USE_LIBXML = yes
 SUPPORT_MXML = yes
+USE_LIBSYSWRAPPER = yes
 
 include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
 

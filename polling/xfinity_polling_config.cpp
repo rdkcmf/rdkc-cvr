@@ -20,6 +20,10 @@
 **/
 #include "rdk_debug.h"
 #include "xfinity_polling_config.h"
+extern  "C"
+{
+#include "secure_wrapper.h"
+}
 
 #include<iostream>
 using namespace std;
@@ -2750,14 +2754,18 @@ int XfinityPollingConfig::XPC_parse_firmware_attr(All_Conf *pconf, xmlNodePtr ta
         {
 		if (strlen(fw_auth))
 		{
-			snprintf(tmp_buf,sizeof(tmp_buf)-1, "/usr/local/bin/auto_upgrade %s %d NULL \"%s\" >/dev/null 2>/dev/null &", fw_url, 2000, fw_auth);
-		}
+		//	snprintf(tmp_buf,sizeof(tmp_buf)-1, "/usr/local/bin/auto_upgrade %s %d NULL \"%s\" >/dev/null 2>/dev/null &", fw_url, 2000, fw_auth);
+		        v_secure_system("/usr/local/bin/auto_upgrade %s %d NULL \"%s\" >/dev/null 2>/dev/null &", fw_url, 2000, fw_auth);
+                        RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): command:%s!\n", __FUNCTION__, __LINE__, "/usr/local/bin/auto_upgrade %s %d NULL \"%s\" >/dev/null 2>/dev/null &", fw_url, 2000, fw_auth);
+                }
 		else
 		{
-			snprintf(tmp_buf,sizeof(tmp_buf)-1, "/usr/local/bin/auto_upgrade %s %d >/dev/null 2>/dev/null &", fw_url, 2000);
-		}
-                system(tmp_buf);
-                RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): command:%s!\n", __FUNCTION__, __LINE__, tmp_buf);
+			//snprintf(tmp_buf,sizeof(tmp_buf)-1, "/usr/local/bin/auto_upgrade %s %d >/dev/null 2>/dev/null &", fw_url, 2000);
+		        v_secure_system("/usr/local/bin/auto_upgrade %s %d >/dev/null 2>/dev/null &", fw_url, 2000);
+                        RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): command:%s!\n", __FUNCTION__, __LINE__, "/usr/local/bin/auto_upgrade %s %d >/dev/null 2>/dev/null &", fw_url, 2000);
+                }
+                //system(tmp_buf);
+                //RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): command:%s!\n", __FUNCTION__, __LINE__, tmp_buf);
         }
 
         return ret;
