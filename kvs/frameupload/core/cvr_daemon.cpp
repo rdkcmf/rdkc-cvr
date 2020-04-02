@@ -716,6 +716,60 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
         return 0;
 }
 
+/** @description: retrieve event quiet interval
+ *  @param[in] : void
+ *  @return: event quiet interval
+ */
+int CVR::get_quiet_interval()
+{
+	int quiet_interval =event_quiet_time;
+	events_provision_info_t *eventsCfg = NULL;
+
+	// Allocate memory for event config
+	eventsCfg = (events_provision_info_t*) malloc(sizeof(events_provision_info_t));
+
+	if (NULL == eventsCfg) {
+		RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error allocating memory. Use existing quiet interval %d\n", __FILE__, __LINE__, quiet_interval);
+		return quiet_interval;
+	}
+
+	if (RDKC_SUCCESS != polling_config_init()) {
+		RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error initializing polling config. Use existing quiet interval %d\n", __FILE__, __LINE__, quiet_interval);
+		if (eventsCfg) {
+			free(eventsCfg);
+		}
+		return quiet_interval;
+	}
+
+	if (RDKC_SUCCESS != readEventConfig(eventsCfg)) {
+		RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error reading EVENTS Config. Use existing quiet interval %d\n", __FILE__, __LINE__, quiet_interval);
+		return quiet_interval;
+	}
+
+	// get event quiet interval
+	if (strlen(eventsCfg->quite_interval) > 0) {
+		quiet_interval = atoi(eventsCfg->quite_interval);
+	}
+	else {
+		RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Invalid Quiet Interval. Use existing quiet interval %d\n", __FILE__, __LINE__, quiet_interval);
+		return quiet_interval;
+
+	}
+
+	if (event_quiet_time != quiet_interval) {
+		RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Retrieved New Quiet Interval: %d %d\n", __FILE__, __LINE__, event_quiet_time, quiet_interval);
+	}
+
+	if (eventsCfg) {
+		free(eventsCfg);
+		eventsCfg = NULL;
+	}
+
+	polling_config_exit();
+
+	return quiet_interval;
+}
+
 /** @description: getting cvr event info
  *  @param[in] : event_type - EventType pointer
  *  @param[in] : event_datetime - time_t pointer
@@ -725,17 +779,7 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
 int CVR::cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t cvr_starttime)
 {
 #ifdef RTMSG
-	char *configParam = NULL;
-	char usr_value[8] = {0};
-	if (RDKC_SUCCESS != rdkc_get_user_setting(EVENT_QUIET_TIME,usr_value))
-	{
-		configParam=(char*)rdkc_envGet(EVENT_QUIET_TIME);
-	}
-	else
-	{
-		configParam =usr_value;
-	}
-	event_quiet_time=atoi(configParam);
+	event_quiet_time = get_quiet_interval();
 
 	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR",",event_quiet_time=%d",event_quiet_time);
 

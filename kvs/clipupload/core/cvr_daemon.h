@@ -64,6 +64,7 @@ extern "C"
 #endif
 
 //#include "video_analysis.h" //vai_result_t
+#include "polling_config.h"
 #include "event_config.h"   //EventType
 #include "AUD_conf.h"	//AUD_Conf
 #include "main.h"   //ReadAllConf
@@ -204,6 +205,7 @@ class CVR {
       int cvr_enable_audio(bool val);
       int cvr_check_rfcparams();
 
+      int get_quiet_interval();
       int cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t cvr_starttime);
       void cvr_init_audio_stream();
 
