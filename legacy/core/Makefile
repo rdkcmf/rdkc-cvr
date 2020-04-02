@@ -29,6 +29,7 @@ USE_HTTPCLIENT = yes
 USE_GST = yes
 USE_STREAMUTILS = yes
 USE_SYSUTILS = yes
+USE_LIBSYSWRAPPER = yes
 
 include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
 CFLAGS += -DWITH_GST
