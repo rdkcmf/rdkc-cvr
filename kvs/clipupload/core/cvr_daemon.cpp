@@ -1356,7 +1356,7 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
 #ifdef XCAM2
         smartTnEnabled = true;
 #else
-        smartTnEnabled = check_enabled_rfc_feature(RFC_RDKC_SMART_TN_UPLOAD, SMART_TN_UPLOAD);
+        smartTnEnabled = check_enabled_rfc_feature(RFCFILE, SMART_TN_UPLOAD);
 #endif
 	if(smartTnEnabled) {
 		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Smart thumbnail is enabled in RFC. smartTnEnabled: \n", __FILE__, __LINE__, smartTnEnabled);
