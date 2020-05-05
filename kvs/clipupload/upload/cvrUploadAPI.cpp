@@ -173,9 +173,6 @@ static void PushMsg_kvs(cvr_upload_params_t msg)
                 if ( (hangdetecttime1 == hangdetecttime2) && (hangdetecttime2 == hangdetecttime3) ) {
                         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Hang detected in upload thread : %lld \n", __FUNCTION__, __LINE__, hangdetecttime);
                         fflush(stdout);
-
-                        kill(getpid(), SIGFPE);
-                        fflush(stdout);
                         kill(getpid(), SIGTERM);
                 }
         }
