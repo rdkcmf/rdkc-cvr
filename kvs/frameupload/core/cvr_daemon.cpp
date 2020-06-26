@@ -135,7 +135,8 @@ CVR::CVR(): init_flag(0),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
 	kvsclip_abstime(0),
-	kvsclip_livemode(0)
+	kvsclip_livemode(0),
+	count_motion_mismatch(0)
 {
 #ifdef RTMSG
 	rtmessageCVRThreadExit = false;
@@ -628,7 +629,6 @@ int CVR::update_od_frame_data(vai_result_t *vai_recvd_res)
 int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p_frame_num_count,uint8_t *p_event_type_raw, float *p_motion_level_raw_sum)
 {
         vai_result_t *p_od_result = NULL;
-        static unsigned int iCount = 0;
 
 #ifdef RTMSG
         //vai_result_t vai_result_recved;
@@ -676,15 +676,12 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
 		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): p_od_result->timestamp : %llu, p_cvr_frame->arm_pts: %llu, abs(p_cvr_frame->arm_pts - p_od_result->timestamp): %lld!!!\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
                 //if (0 == p_od_result->timestamp || abs(p_od_result->timestamp - p_cvr_frame->arm_pts) > 45000) {
                 if (0 == p_od_result->timestamp || abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)) > (45000 * 2) ) {
-                        iCount++;
-                        if(iCount == 600) {  //log every one minute @10fps
-
-                                RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d):All event are disabled, needn't get motion statistics!!!\n ", __FILE__, __LINE__);
-				//RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): p_od_result->timestamp : %llu, p_cvr_frame->arm_pts: %llu, abs(p_cvr_frame->arm_pts - p_od_result->timestamp): %d!!!\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, (int)abs(p_cvr_frame->arm_pts - p_od_result->timestamp));
-				RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): MotionTimestamps p_od_result p_cvr_frame abs_diff: %llu, %llu, %lld\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
-                                iCount = 0;
-                        }
-                        return 0;
+                    if (0 == count_motion_mismatch) {
+                        RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d):All event are disabled, needn't get motion statistics\n ", __FILE__, __LINE__);
+                        RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): MotionTimestamps p_od_result p_cvr_frame abs_diff: %llu, %llu, %lld\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
+                    }
+                    count_motion_mismatch++;
+                    return 0;
                 }
 
                 (*p_frame_num_count)++;
@@ -2234,6 +2231,11 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
                 RDK_LOG(RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): No Motion: %d, Low Motion: %d, Medium Motion: %d, High Motion: %d\n",__FILE__, __LINE__, count_no,      count_low, count_med, count_high);
                 clipStatus = CVR_CLIP_GEN_END;
+
+                if (count_motion_mismatch > 0) {
+                    RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Motion Mismatch count: %d \n", __FILE__, __LINE__, count_motion_mismatch);
+                    count_motion_mismatch = 0;
+                }
 
                 if(od_frame_upload_enabled)
                 {

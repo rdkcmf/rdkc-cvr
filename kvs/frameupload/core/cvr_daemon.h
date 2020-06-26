@@ -209,6 +209,7 @@ class CVR : public kvsUploadCallback
       int count_low;
       int count_med;
       int count_high;
+      int count_motion_mismatch;
 
       int amba_hwtimer_init(void);
       void amba_hwtimer_exit(int fd);
