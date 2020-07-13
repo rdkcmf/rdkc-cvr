@@ -1264,6 +1264,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
         rtConnection_AddListener(connectionRecv, "RDKC.CVR", on_message_cvr, NULL);
         rtConnection_AddListener(connectionRecv, "RDKC.SMARTTN.STATUS", on_message_smt_TN, NULL);
         rtConnection_AddListener(connectionRecv, "RDKC.CONF.CVRSTATS.REFRESH", on_message_cvrStats, NULL);
+        rtConnection_AddListener(connectionRecv, "RDKC.ENABLE_DYNAMIC_LOG", on_message_dyn_log, connectionRecv);
 
         std::thread rtMessage_recv_thread (receive_rtmessage);
         pthread_setname_np(rtMessage_recv_thread.native_handle(),"rt_recmessage");
