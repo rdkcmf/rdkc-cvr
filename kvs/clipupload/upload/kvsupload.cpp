@@ -645,7 +645,7 @@ void kinesis_video_stream_uninit(CustomData *data, uint64_t& hangdetecttime) {
         data->put_frame_flushed = true;
       }
     }
-    data->kinesis_video_stream->stopSync();
+    data->kinesis_video_stream->stop();
     hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     data->kinesis_video_producer->freeStream(data->kinesis_video_stream);
     data->kinesis_video_stream = NULL;
