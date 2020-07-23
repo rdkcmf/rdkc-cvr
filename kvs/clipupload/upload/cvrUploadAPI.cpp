@@ -264,6 +264,8 @@ static void PushMsg_kvs(cvr_upload_params_t msg)
                         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Hang detected in upload thread : %lld \n", __FUNCTION__, __LINE__, hangdetecttime);
                         fflush(stdout);
                         kill(getpid(), SIGTERM);
+                        sleep(1);
+                        kill(getpid(), SIGKILL);
                 }
         }
         //end - code to check hang in upload thread
