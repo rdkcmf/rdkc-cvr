@@ -47,7 +47,7 @@ extern "C"{
 #define MAXSIZE			512
 #define CVR_THRESHHOLD_COUNT    4
 #define CVR_FLUSH_COUNT         1
-#define KVSINITMAXRETRY         5
+#define MAXRETRY                5
 #define RDKC_FAILURE     	-1
 #define RDKC_SUCCESS		0
 #define STAT_UPLOAD_INTERVAL  30
@@ -352,7 +352,7 @@ static void * kvsUpload(void* args)
                 static int retry = 0;
                 if (0 != ret_kvs) {
                     retry++;
-                    if ( retry > KVSINITMAXRETRY ) {
+                    if ( retry > MAXRETRY ) {
                         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in kvs_init exit process %d\n", __FILE__, __LINE__);
                         exit(1);
                     }
@@ -620,7 +620,7 @@ static void* cvrStatisticsUpload(void* arg)
 int updateStatConfiguration()
 {
     cvrStats_provision_info_t *cvrstatConfig = NULL;
-    bool retry = true;
+    int retry = 0;
     char buff[10] = {'\0'};
 
     // Read cvr stats config.
@@ -630,22 +630,18 @@ int updateStatConfiguration()
         return RDKC_FAILURE;
     }
 
-    if (RDKC_FAILURE == polling_config_init()) {
-        RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVRPOLL","%s(%d): Error initializing polling config for cvr stats\n", __FILE__, __LINE__);
-        if (cvrstatConfig) {
-            free(cvrstatConfig);
-            cvrstatConfig = NULL;
-        }
-        return RDKC_FAILURE;
-    }
-
-    while (retry) {
+    while (true) {
         if (RDKC_SUCCESS != readCVRStatsConfig(cvrstatConfig)) {
             RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVRPOLL","%s(%d): Error reading cvr stats Config.\n", __FILE__, __LINE__);
+            retry++;
+            sleep(10);
+            if ( retry >  MAXRETRY ) {
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in readCVRStatsConfig exit process %d\n", __FILE__, __LINE__);
+                exit(1);
+            }
         } else {
             break;
         }
-        sleep(10);
     }
 
     memset(buff, 0, sizeof(buff));
@@ -689,7 +685,7 @@ int updateStatConfiguration()
         free(cvrstatConfig);
         cvrstatConfig = NULL;
     }
-    polling_config_exit();
+
     return RDKC_SUCCESS;
 }
 

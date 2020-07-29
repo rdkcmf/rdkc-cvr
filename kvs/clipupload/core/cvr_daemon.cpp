@@ -742,7 +742,7 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
  */
 int CVR::get_quiet_interval()
 {
-	int quiet_interval =event_quiet_time;
+	int quiet_interval = event_quiet_time;
 	events_provision_info_t *eventsCfg = NULL;
 
 	// Allocate memory for event config
@@ -750,14 +750,6 @@ int CVR::get_quiet_interval()
 
 	if (NULL == eventsCfg) {
 		RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error allocating memory. Use existing quiet interval %d\n", __FILE__, __LINE__, quiet_interval);
-		return quiet_interval;
-	}
-
-	if (RDKC_SUCCESS != polling_config_init()) {
-		RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error initializing polling config. Use existing quiet interval %d\n", __FILE__, __LINE__, quiet_interval);
-		if (eventsCfg) {
-			free(eventsCfg);
-		}
 		return quiet_interval;
 	}
 
@@ -784,8 +776,6 @@ int CVR::get_quiet_interval()
 		free(eventsCfg);
 		eventsCfg = NULL;
 	}
-
-	polling_config_exit();
 
 	return quiet_interval;
 }
@@ -1266,6 +1256,11 @@ void CVR::setCVRStreamId(int streamid)
 int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
 {
 	int rdkc_ret = 1;
+
+	if (RDKC_FAILURE == polling_config_init()) {
+                RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVRPOLL","%s(%d): Error initializing polling config\n", __FILE__, __LINE__);
+                return RDKC_FAILURE;
+        }
 
 #if 0 //RDKC-5298
         /* process control */
@@ -2133,6 +2128,7 @@ int CVR::cvr_close(char *argv[])
 	//rtmessageCVRThreadExit = true;
         RFCRelease();
         config_release();
+        polling_config_exit();
 
 	if(v_stream_conf) {
 		delete v_stream_conf;
