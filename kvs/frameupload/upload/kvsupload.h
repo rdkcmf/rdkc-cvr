@@ -24,7 +24,11 @@
 #include "kvsuploadCallback.h"
 
 int kvsInit(kvsUploadCallback* callback, int stream_id);
-int kvsStreamInit(unsigned short& audioenabled, unsigned short& abstimestamp, unsigned short& livemode, unsigned short& contentchangestatus);
-int kvsUploadFrames(unsigned short& audioenabled, unsigned short& abstimestamp, unsigned short& livemode, RDKC_FrameInfo frameData, char* fileName, bool isEOF = false );
+int kvsStreamInit(unsigned short& audioenabled, unsigned short& kvshighmem, unsigned short& contentchangestatus);
+#ifdef _HAS_XSTREAM_
+int kvsUploadFrames(unsigned short& audioenabled, unsigned short& kvshighmem, frameInfoH264 frameData, char* filename, bool isEOF = false );
+#else
+int kvsUploadFrames(unsigned short& audioenabled, unsigned short& kvshighmem, RDKC_FrameInfo frameData, char* fileName, bool isEOF = false );
+#endif //_HAS_XSTREAM_
 
 #endif

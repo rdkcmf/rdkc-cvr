@@ -50,17 +50,28 @@ export DCA_PATH=$RDK_SOURCE_PATH
 
 if [ "$XCAM_MODEL" == "SCHC2" ]; then
 . ${RDK_PROJECT_ROOT_PATH}/build/components/amba/sdk/setenv2
-elif [ "$XCAM_MODEL" == "SERXW3" ] || [ "$XCAM_MODEL" == "SERICAM2" ]; then
+else  
 . ${RDK_PROJECT_ROOT_PATH}/build/components/sdk/setenv2
-else #No Matching platform
-    echo "Source environment that include packages for your platform. The environment variables PROJ_PRERULE_MAK_FILE should refer to the platform s PreRule make"
 fi
 
 export PLATFORM_SDK=${RDK_TOOLCHAIN_PATH}
 export FSROOT=$RDK_FSROOT_PATH
 
-#build cvr with frame upload
-export KVS_FRAMEUPLOAD=no
+export KVS_FRAMEUPLOAD=yes
+
+if [ "$XCAM_MODEL" == "XHB1" ]; then
+    echo "Enable xStreamer by default for xCam2 and DBC"
+    export ENABLE_XSTREAMER=true
+else
+    echo "Disable xStreamer by default for xCam and iCam2"
+    export ENABLE_XSTREAMER=false
+fi
+
+if [ "$XCAM_MODEL" == "XHB1" ];then
+	echo "setxStreamer - Enable xStreamer and KVS frame upload too"
+        export ENABLE_XSTREAMER=true
+        export KVS_FRAMEUPLOAD=yes
+fi
 
 # parse arguments
 INITIAL_ARGS=$@
@@ -147,10 +158,11 @@ function install()
     echo "CVR Installation is done"
 }
 
-function setframeuploadmode()
+function setxStreamer()
 {
-    echo "setframeuploadmode - Frame upload enabled build"
-    export KVS_FRAMEUPLOAD=yes
+	echo "setxStreamer - Enable xStreamer and KVS frame upload too"
+	export ENABLE_XSTREAMER=true
+	export KVS_FRAMEUPLOAD=yes
 }
 
 # run the logic
@@ -160,7 +172,7 @@ HIT=false
 for i in "$@"; do
     echo "$i"
     case $i in
-        enableframeupload)  HIT=true; setframeuploadmode ;;
+        enablexStreamer)    HIT=true; setxStreamer ;;
         configure)  HIT=true; configure ;;
         clean)      HIT=true; clean ;;
         build)      HIT=true; build ;;

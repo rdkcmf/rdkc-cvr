@@ -103,8 +103,7 @@ CVR::CVR(): init_flag(0),
 	    count_med(0),
 	    count_high(0),
             kvsclip_audio(0),
-            kvsclip_abstime(0),
-            kvsclip_livemode(0)
+	    kvsclip_highmem(0)
 {
 #ifdef RTMSG
 	rtmessageCVRThreadExit = false;
@@ -275,7 +274,7 @@ void CVR::on_message_cvrStats(rtMessageHeader const* hdr, uint8_t const* buff, u
 	if(!strcmp(status, "refresh"))
 	{
 		updateStatConfiguration();
-		}
+	}
 	
 	rtMessage_Release(req);
 }
@@ -1290,11 +1289,9 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
         }
 
         kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
-        kvsclip_abstime = atoi(argv[2]);	/* abs timestamp flag */
-        kvsclip_livemode = atoi(argv[3]);	/* live mode flag */
+	kvsclip_highmem = atoi(argv[2]);    /* highmem flag */
 
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_abstime: %d : kvsclip_livemode : %d\n", 
-                                                                __FILE__, __LINE__, kvsclip_audio, kvsclip_abstime, kvsclip_livemode);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
 
         // Init cvr flag
         cvr_flag = RDKC_STRAM_FLAG_VIDEO;       // Video is must
@@ -1304,11 +1301,7 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
 #endif
         cvr_flag |= RDKC_STRAM_FLAG_PADDING;    // Padding is must
         
-        if( ! kvsclip_abstime ) {
-                cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;    //disable abs timestamp - 1 means disable absolute timestamp - 0  means reset timestamp
-        } else {
-                cvr_flag &= ~RDKC_STRAM_FLAG_ABSTIMESTAMP; 
-        }
+        cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;    //disable abs timestamp - 1 means disable absolute timestamp - 0  means reset timestamp
 
 	conf = new camera_resource_config_t;
 	//conf->KeyValue = stream_id + MAX_ENCODE_STREAM_NUM;
@@ -1428,6 +1421,9 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 	unsigned short audioFrameCount = 0;
 	unsigned short totalFramesinClip = 0;
 	unsigned long cliplength_ms = 0;
+	unsigned short kvsclip_abstime = 0;
+	unsigned short kvsclip_livemode = 0;
+
 #ifdef XFINITY_SUPPORT
 	CloudRecorderConf *CloudRecorderInfo  = (CloudRecorderConf*)pCloudRecorderInfo ;
 #else
@@ -1519,14 +1515,9 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 #endif
 			cvr_flag |= RDKC_STRAM_FLAG_PADDING;    // Padding is must
 
-			if( ! kvsclip_abstime ) {
-				cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;
-			} else {
-				cvr_flag &= ~RDKC_STRAM_FLAG_ABSTIMESTAMP;
-			}
+			cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;
 
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_abstime: %d : kvsclip_livemode : %d : cvr_flag : %d\n", 
-					__FILE__, __LINE__, kvsclip_audio, kvsclip_abstime, kvsclip_livemode, cvr_flag );
+			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : cvr_flag : %d\n", __FILE__, __LINE__, kvsclip_audio, cvr_flag );
 
 			// request connection, inti ts
 			conf->KeyValue = m_streamid + MAX_ENCODE_STREAM_NUM;
@@ -1683,11 +1674,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 			if(cvr_flag & RDKC_STRAM_FLAG_AUDIO)
 			{
 
-				if( ! kvsclip_abstime ) {
-					cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;
-				}else {
-					cvr_flag &= ~RDKC_STRAM_FLAG_ABSTIMESTAMP;
-				}
+				cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;
 
 				RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): Initialize clip creation, ts_fd=%d, cvr_flag=%d!\n", __LINE__, ts_fd, cvr_flag);
 				rdkc_ret = recorder->CVRBuildInit(ts_fd, &cvr_key_frame, cvr_flag);
@@ -1702,12 +1689,8 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 			}
 			else
 			{
+				cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;
 
-				if( ! kvsclip_abstime ) {
-					cvr_flag |= RDKC_STRAM_FLAG_ABSTIMESTAMP;
-				} else {
-					cvr_flag &= ~RDKC_STRAM_FLAG_ABSTIMESTAMP;
-				}
 				RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): Initialize clip creation, ts_fd=%d, cvr_flag=%d!\n", __LINE__, ts_fd, cvr_flag);
 				rdkc_ret = recorder->CVRBuildInit(ts_fd, &cvr_key_frame, cvr_flag&(~RDKC_STRAM_FLAG_AUDIO));
 				if (-1 == rdkc_ret)
@@ -2077,7 +2060,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 						}
 						cvr_upload( fpath, starttime, endtime, event_type, event_datetime,m_fpath,
 								motion_level_idx+1,str_od_data,va_engine_version,true,
-								kvsclip_audio, kvsclip_abstime, kvsclip_livemode, ( m_streamid & 0x0F ));
+								kvsclip_audio, kvsclip_abstime, kvsclip_livemode,( m_streamid & 0x0F ));
 					} else {
 						cvr_upload( fpath, starttime, endtime, event_type, event_datetime,m_fpath,
 								motion_level_idx+1,str_od_data,va_engine_version,false,

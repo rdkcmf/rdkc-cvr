@@ -26,7 +26,6 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <PutFrameHelper.h>
 #include <atomic>
 #include <iostream>
 #include <fstream>
@@ -34,10 +33,14 @@
 #include <queue>
 #include <unordered_map>
 #include "KinesisVideoProducer.h"
+#include "StreamDefinition.h"
 #include "CachingEndpointOnlyCallbackProvider.h"
 #include <IotCertCredentialProvider.h>
 #include "rdk_debug.h"
 #include "kvsuploadCallback.h"
+#ifdef _HAS_XSTREAM_
+#include "xStreamerConsumer.h"
+#endif
 
 using namespace std;
 using namespace com::amazonaws::kinesis::video;
@@ -74,8 +77,14 @@ LOGGER_TAG("com.amazonaws.kinesis.video.gstreamer");
 #define DEFAULT_KMS_KEY_ID ""
 #define DEFAULT_STREAMING_TYPE STREAMING_TYPE_OFFLINE
 #define DEFAULT_CONTENT_TYPE "video/h264,audio/aac"
-#define DEFAULT_MAX_LATENCY_SECONDS 60
-#define DEFAULT_FRAGMENT_DURATION_MILLISECONDS 2000
+#define DEFAULT_MAX_LATENCY_SECONDS 30
+#ifdef XCAM2
+#define DEFAULT_FRAGMENT_DURATION_MILLISECONDS 15500
+int time_difference = 16000;
+#else
+#define DEFAULT_FRAGMENT_DURATION_MILLISECONDS 14500
+int time_difference = 15000;
+#endif
 #define DEFAULT_TIMECODE_SCALE_MILLISECONDS 1
 #define DEFAULT_KEY_FRAME_FRAGMENTATION TRUE
 #define DEFAULT_FRAME_TIMECODES TRUE
@@ -85,13 +94,13 @@ LOGGER_TAG("com.amazonaws.kinesis.video.gstreamer");
 #define DEFAULT_RECALCULATE_METRICS TRUE
 #define DEFAULT_STREAM_FRAMERATE 25
 #define DEFAULT_AVG_BANDWIDTH_BPS (4 * 1024 * 1024)
-#define DEFAULT_BUFFER_DURATION_SECONDS 120
+#define DEFAULT_BUFFER_DURATION_SECONDS 60
 #define DEFAULT_REPLAY_DURATION_SECONDS 40
-#define DEFAULT_CONNECTION_STALENESS_SECONDS 120
+#define DEFAULT_CONNECTION_STALENESS_SECONDS 20
 #define DEFAULT_CODEC_ID "V_MPEG4/ISO/AVC"
 #define DEFAULT_TRACKNAME "kinesis_video"
-#define STORAGE_SIZE_STREAM1 (3 * 1024 * 1024)
-#define STORAGE_SIZE_STREAM2 (4 * 1024 * 1024)
+#define STORAGE_SIZE_STREAM1 (10 * 1024 * 1024)
+#define STORAGE_SIZE_STREAM2 (8 * 1024 * 1024)
 #define DEFAULT_STORAGE_SIZE_STREAM (3 * 1024 * 1024)
 #define DEFAULT_ROTATION_TIME_SECONDS 2400
 #define DEFAULT_VIDEO_TRACKID 1
@@ -105,14 +114,18 @@ LOGGER_TAG("com.amazonaws.kinesis.video.gstreamer");
 #define DEFAULT_CODECID_H264VIDEO_CAM_STREAM3  "014d001fffe1002d674d001f9a6402802dff80b5010101400000fa000013883a1800b720002dc72ef2e3430016e40005b8e5de5c2801000468ee3c80"
 #define DEFAULT_CODECID_H264VIDEO_CAM2_STREAM1 "014d401fffe1002e674d401f8d8d402802dff80b7010101400000fa000013883a1802490000d59faef2e343004920001ab3f5de5c28001000468ef7c80"
 #define DEFAULT_CODECID_H264VIDEO_CAM2_STREAM3 "014d401fffe1002e674d401f8d8d402802dff80b7010101400000fa000013883a1802490000d59faef2e343004920001ab3f5de5c28001000468ee3880"
-#define DEFAULT_CODECID_AACAUDIO "1408"
+#define DEFAULT_CODECID_AACAUDIO "1588"
 #define DEFAULT_CACHE_TIME_IN_SECONDS 86400 //24*3600 ~ 1 day
 #define CVR_THRESHHOLD_COUNT_IN_MILLISECONDS  60000 //15sec*4 ~ 60 sec
+#define AAC_HEADER_LENGTH 7
+#define CVR_THRESHHOLD_FRAMEDROP_AUDIOVIDEO 1000
+#define CVR_THRESHHOLD_FRAMEDROP_VIDEO 600
 
 /*Global variables - TBD - convert to private */
 kvsUploadCallback* callbackObj;
 static unordered_map<string, string> clipmapwithsequencenumber;
-
+static deque<std::string> queueclipName;
+static bool isstreamerror_reported = false;
 /************************************************* common api's start*****************************************/
 namespace com { namespace amazonaws { namespace kinesis { namespace video {
 typedef struct _CustomData {
@@ -125,21 +138,11 @@ typedef struct _CustomData {
     clip_senttokvssdk_time(0),
     lastclippersisted_time(0),
     stream_in_progress(false),
-    streaming_type(DEFAULT_STREAMING_TYPE),
     gkvsclip_audio(0),
-    gkvsclip_abstime(0),
-    gkvsclip_livemode(0),
     kinesis_video_stream(nullptr),
     //audio related params
-    putFrameHelper(nullptr),
-    pipeline_blocked(false),
     total_track_count(1),
-    put_frame_failed(false),
-    put_frame_flushed(false),
-    cvr_stream_id(3)
-  {
-    lastclippersisted_time = chrono::duration_cast<milliseconds>(systemCurrentTime().time_since_epoch()).count();
-  }
+    cvr_stream_id(3) {}
 
   //kvs components
   unique_ptr<KinesisVideoProducer> kinesis_video_producer;
@@ -165,30 +168,11 @@ typedef struct _CustomData {
   //Condition variable used to signal the clip has been uploaded.
   std::condition_variable clip_upload_status_var_;
 
-  //streaming type
-  STREAMING_TYPE streaming_type;
-
   //Indicating that the clip has audio
   unsigned short gkvsclip_audio;
 
-  //Indicating that the clip has abs timestamp
-  unsigned short gkvsclip_abstime;
-
-  //Indicating that the clip has live mode enabled
-  unsigned short gkvsclip_livemode;
-
-  // indicate if either audio or video media pipeline is currently blocked. If so, the other pipeline line will wake up
-  // the blocked one when the time is right.
-  volatile bool pipeline_blocked;
-
-  // helper object for syncing audio and video frames to avoid fragment overlapping.
-  unique_ptr<PutFrameHelper> putFrameHelper;
-
-  // whether putFrameHelper has reported a putFrame failure.
-  atomic_bool put_frame_failed;
-
-  // whether putFrameHelper flush done
-  atomic_bool put_frame_flushed ;
+  //Indicating SDK high mem settings
+  unsigned short gkvsclip_highmem;
 
   // key:     trackId
   // value:   whether application has received the first frame for trackId.
@@ -320,25 +304,29 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
 
   device_info_t getDeviceInfo() override {
     auto device_info = DefaultDeviceInfoProvider::getDeviceInfo();
-    LOG_ERROR("SampleDeviceInfoProvider : stream id :" << m_stream_id );
-    switch (m_stream_id) {
-      case 0 :
+    LOG_INFO("SampleDeviceInfoProvider : stream id :" << m_stream_id );
+    if(data.gkvsclip_highmem) {
         device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM1;
-        break;
-      case 1 :
-        device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM2;
-        break;
-      case 2 :
-        device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-        break;
-      case 3 :
-        device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-        break;
-      default:
-        device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-	break;
+    } else {
+        switch (m_stream_id) {
+        case 0 :
+            device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM1;
+            break;
+        case 1 :
+            device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM2;
+            break;
+        case 2 :
+            device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
+            break;
+        case 3 :
+            device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
+            break;
+        default:
+            device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
+            break;
+        }
     }
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): SampleDeviceInfoProvider : storage size : %u\n", __FILE__, __LINE__, device_info.storageInfo.storageSize);
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): SampleDeviceInfoProvider : storage size : %" PRIu64 "\n", __FILE__, __LINE__, device_info.storageInfo.storageSize);
 
     return device_info;
   }
@@ -346,57 +334,62 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
 
 /* client callbacks start*/
 STATUS SampleClientCallbackProvider::clientReadyHandler(UINT64 custom_data, CLIENT_HANDLE client_handle) {
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): clientReadyHandler %u\n", __FILE__, __LINE__, client_handle);
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): clientReadyHandler \n", __FILE__, __LINE__);
     return STATUS_SUCCESS;
 }
 
 STATUS SampleClientCallbackProvider::storageOverflowPressure(UINT64 custom_handle, UINT64 remaining_bytes) {
-  UNUSED_PARAM(custom_handle);
-  RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Reporting storage overflow. Bytes remaining %u\n", __FILE__, __LINE__, remaining_bytes);
-  return STATUS_SUCCESS;
+	UNUSED_PARAM(custom_handle);
+	static int reportingStorageBytesCount=0;
+	if( (reportingStorageBytesCount % 10) == 0 ) {
+		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Reporting storage overflow. Bytes remaining %" PRIu64 "\n", __FILE__, __LINE__, remaining_bytes);
+	}
+	reportingStorageBytesCount++;
+	return STATUS_SUCCESS;
 }
 /* client callbacks end*/
 
 
 /* stream callbacks start*/
 STATUS SampleStreamCallbackProvider::streamUnderflowReportHandler(UINT64 custom_data, STREAM_HANDLE stream_handle) {
-    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamUnderflowReportHandler : stream_handle : %u\n", __FILE__, __LINE__, stream_handle );
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamUnderflowReportHandler\n", __FILE__, __LINE__);
     return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::streamLatencyPressureHandler(UINT64 custom_data,
                                                              STREAM_HANDLE stream_handle,
                                                              UINT64 buffer_duration) {
-    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamLatencyPressureHandler : buffer_duration %u, stream_handle :%u\n"
-                        __FILE__, __LINE__ , buffer_duration, stream_handle);
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamLatencyPressureHandler : buffer_duration %" PRIu64 "\n", __FILE__, __LINE__ , buffer_duration);
     return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::droppedFrameReportHandler(UINT64 custom_data, STREAM_HANDLE stream_handle,
                                                         UINT64 dropped_frame_timecode)
 {
-    CustomData *customDataObj = reinterpret_cast<CustomData *>(custom_data);
-    if( customDataObj->kinesis_video_stream != NULL)
-    {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::droppedFrameReportHandler : dropped_frame_timecode : %u , stream_handle :%u\n"
-            __FILE__, __LINE__ , dropped_frame_timecode, stream_handle);
-    }
-    return STATUS_SUCCESS;
+	static int droppedFrameReportHandlerCount=0;
+	CustomData *customDataObj = reinterpret_cast<CustomData *>(custom_data);
+	if( customDataObj->kinesis_video_stream != NULL)
+	{
+		if( (droppedFrameReportHandlerCount % 10) == 0 )
+		{
+			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::droppedFrameReportHandler : dropped_frame_timecode : %" PRIu64 "\n", __FILE__, __LINE__ , dropped_frame_timecode);
+		}
+		droppedFrameReportHandlerCount++;
+	}
+	return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::streamConnectionStaleHandler(UINT64 custom_data,
                                                              STREAM_HANDLE stream_handle,
                                                              UINT64 last_ack_duration) {
-    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamConnectionStaleHandler : last_ack_duration : %u , stream_handle :%u\n"
-            __FILE__, __LINE__ , last_ack_duration,  stream_handle);
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamConnectionStaleHandler : last_ack_duration : %" PRIu64 "\n", __FILE__, __LINE__ , last_ack_duration);
     return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::droppedFragmentReportHandler(UINT64 custom_data,
                                                              STREAM_HANDLE stream_handle,
                                                              UINT64 timecode) {
-    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::droppedFragmentReportHandler : fragment_timecode : %u , stream_handle : %u\n"
-            __FILE__, __LINE__ , timecode , stream_handle);
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::droppedFragmentReportHandler : fragment_timecode : %" PRIu64 "\n", __FILE__, __LINE__ , timecode);
     return STATUS_SUCCESS;
 }
 
@@ -409,23 +402,22 @@ STATUS SampleStreamCallbackProvider::streamErrorReportHandler(UINT64 custom_data
     CustomData *customDataObj = reinterpret_cast<CustomData *>(custom_data);
 
     if (customDataObj->kinesis_video_stream != NULL) {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d):  streamErrorReportHandler Error code : %s , stream_handle : %u , upload_handle : %u, \n"
-               ,__FILE__, __LINE__, status_strstrm.str().c_str(), stream_handle, upload_handle);
+        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d):  streamErrorReportHandler Error code : %s\n", __FILE__, __LINE__, status_strstrm.str().c_str());
     }
-    callbackObj->onUploadError(customDataObj->clip_name, status_strstrm.str().c_str());
+    isstreamerror_reported = true;
+    //callbackObj->onUploadError(customDataObj->clip_name, status_strstrm.str().c_str());
     return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::streamReadyHandler(UINT64 custom_data, STREAM_HANDLE stream_handle) {
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d):SampleStreamCallbackProvider::streamReadyHandler invoked : stream handle : %u\n", __FILE__, __LINE__,stream_handle);
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d):SampleStreamCallbackProvider::streamReadyHandler invoked \n", __FILE__, __LINE__);
     return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::streamClosedHandler(UINT64 custom_data,
                                                     STREAM_HANDLE stream_handle,
                                                     UPLOAD_HANDLE stream_upload_handle) {
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamClosedHandler invoked : stream handle : %u : stream upload handle : %u\n"
-            __FILE__, __LINE__,stream_handle, stream_upload_handle);
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): SampleStreamCallbackProvider::streamClosedHandler invoked\n", __FILE__, __LINE__);
     return STATUS_SUCCESS;
 }
 
@@ -445,24 +437,25 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
     CustomData *customDataObj = reinterpret_cast<CustomData *>(custom_data);
     static uint64_t clipcount = 0;
     static uint64_t clipuploadtime = 0;
-
+    static uint64_t previous_persisted_timecode = 0;
+    static uint64_t current_buffering_timecode =0;
     LOG_DEBUG("Reporting fragment ACK received. Fragment timecode " << pFragmentAck->timestamp );
     LOG_DEBUG("Reporting fragment ACK received. Fragment type " << pFragmentAck->ackType );
     LOG_DEBUG("Reporting fragment ACK received. Fragment seq number " << pFragmentAck->sequenceNumber );
 
     if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_BUFFERING) {
-        std::string sequencenumber(pFragmentAck->sequenceNumber);
-        std::string clipname(customDataObj->clip_name);
-        clipmapwithsequencenumber[pFragmentAck->sequenceNumber] = customDataObj->clip_name;
+    if(previous_persisted_timecode > 0)
+	current_buffering_timecode = pFragmentAck->timestamp;
         return;
     }
 
     if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_RECEIVED) {
         //Debug Purpose
-        if ( clipmapwithsequencenumber.size() > 5 ) {
-            for ( auto& x: clipmapwithsequencenumber )
-                std:cout <<  x.first << ": " << x.second << std::endl;
-        }
+        if(queueclipName.size() > 5)
+        {
+            for ( auto& x: queueclipName) 
+                std:cout <<  x << std::endl;
+        }    
         return;
     }
 
@@ -474,14 +467,30 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
         uint64_t time_diff = time_now - customDataObj->clip_senttokvssdk_time;
         clipuploadtime+=time_diff;
         uint64_t avgtime_clipupload = clipuploadtime/clipcount ;
+	previous_persisted_timecode = pFragmentAck->timestamp;
         string persistedclip;
-        unordered_map<string,string>::const_iterator mapiterator = clipmapwithsequencenumber.find (pFragmentAck->sequenceNumber);
-
-        if ( mapiterator != clipmapwithsequencenumber.end()) {
-            persistedclip = mapiterator->second;
-            clipmapwithsequencenumber.erase(pFragmentAck->sequenceNumber);
-        }
-
+	int nclips_to_remove = 0;
+	if(current_buffering_timecode > 0)
+		nclips_to_remove = (current_buffering_timecode - previous_persisted_timecode) / time_difference;
+        if(nclips_to_remove > 1)
+	{
+		while(nclips_to_remove)
+		{
+			if(!queueclipName.empty())
+			{
+				persistedclip = queueclipName.front();
+				queueclipName.pop_front();
+				callbackObj->onUploadError(persistedclip.c_str(),"failed");
+				RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvsclip upload unsuccessful %s\n",persistedclip.c_str());
+			}
+			nclips_to_remove--;
+		}		
+	}
+	else
+	{
+		persistedclip = queueclipName.front();
+		queueclipName.pop_front();
+	}
         //epochtime_senttokvssdk, currenttime, epochfragmenttimecode_server, fragmentnumber, timediff
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
                 __FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff );
@@ -496,8 +505,7 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 STATUS SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler(UINT64 custom_data,
                                                                       STREAM_HANDLE stream_handle,
                                                                       UINT64 remaining_duration) {
-    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d):SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler invoked : remaining_duration : %u, stream_handle : %u\n"
-                           , __FILE__, __LINE__, remaining_duration, stream_handle);
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d):SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler invoked : remaining_duration : %" PRIu64 "\n" , __FILE__, __LINE__, remaining_duration);
     return STATUS_SUCCESS;
 }
 
@@ -513,6 +521,9 @@ unique_ptr<Credentials> credentials_;
 //kinesis producer init
 static void kinesisVideoInit(CustomData *data, char* stream_name)
 {
+
+	if(stream_name == NULL)
+		throw runtime_error(std::string("stream name empty"));
 
     STRNCPY(data->stream_name, stream_name,MAX_STREAM_NAME_LEN);
     data->stream_name[MAX_STREAM_NAME_LEN -1] = '\0';
@@ -613,19 +624,6 @@ static void kinesisVideoInit(CustomData *data, char* stream_name)
 //kinesis stream init
 static void kinesisVideoStreamInit(CustomData *data)
 {
-
-	bool use_absolute_fragment_times = DEFAULT_ABSOLUTE_FRAGMENT_TIMES;
-	if ( ! data->gkvsclip_livemode )
-	{ 
-		data->streaming_type = STREAMING_TYPE_OFFLINE;
-		use_absolute_fragment_times = true;
-	}
-	else
-	{
-		data->streaming_type = STREAMING_TYPE_REALTIME;
-		use_absolute_fragment_times = false;
-	}
-
 	string content_type;
 	if ( data->gkvsclip_audio )
 	{
@@ -642,14 +640,14 @@ static void kinesisVideoStreamInit(CustomData *data)
 			hours(DEFAULT_RETENTION_PERIOD_HOURS),
 			nullptr,
 			DEFAULT_KMS_KEY_ID,
-			STREAMING_TYPE_REALTIME, //data->streaming_type,
+			STREAMING_TYPE_REALTIME, 
 			content_type,
 			duration_cast<milliseconds> (seconds(DEFAULT_MAX_LATENCY_SECONDS)),
 			milliseconds(DEFAULT_FRAGMENT_DURATION_MILLISECONDS),
 			milliseconds(DEFAULT_TIMECODE_SCALE_MILLISECONDS),
 			DEFAULT_KEY_FRAME_FRAGMENTATION,
 			DEFAULT_FRAME_TIMECODES,
-			false, //use_absolute_fragment_times,
+			true,
 			DEFAULT_FRAGMENT_ACKS,
 			DEFAULT_RESTART_ON_ERROR,
 			DEFAULT_RECALCULATE_METRICS,
@@ -672,8 +670,6 @@ static void kinesisVideoStreamInit(CustomData *data)
 		LOG_INFO("Kinesis video stream init audio video case");
 		stream_definition->addTrack(DEFAULT_AUDIO_TRACKID, DEFAULT_AUDIO_TRACK_NAME, DEFAULT_AUDIO_CODEC_ID, MKV_TRACK_INFO_TYPE_AUDIO);
 		data->kinesis_video_stream = data->kinesis_video_producer->createStreamSync(move(stream_definition));
-		data->putFrameHelper = make_unique<PutFrameHelper>(data->kinesis_video_stream,1000000,20,20,400,70000);
-		//data->stream_started.clear();
 	}
 	else
 	{
@@ -691,17 +687,8 @@ void kinesisVideoStreamUninit(CustomData *data)
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : kvs stream uninit started\n", __FILE__, __LINE__);
     if (data->kinesis_video_stream != NULL)
     {
-        if ( ( data->gkvsclip_audio ) && ( nullptr != data->putFrameHelper ) ) {
-            // signal putFrameHelper to release all frames still in queue.
-            if( !data->put_frame_flushed.load() ) 
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : kvs put frame flush after stream uninit\n", __FILE__, __LINE__);
-                data->putFrameHelper->flush();
-                data->putFrameHelper->putEofr();
-                data->put_frame_flushed = true;
-            }
-        }
-        data->kinesis_video_stream->stopSync();
+        data->stream_started = false;
+        data->kinesis_video_stream->stop();
         data->kinesis_video_producer->freeStream(data->kinesis_video_stream);
         data->kinesis_video_stream = NULL;
     }
@@ -740,23 +727,32 @@ static bool recreate_stream(CustomData *data)
 }
 
 static void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nanoseconds &dts, FRAME_FLAGS flags,
-                               void *data, size_t len)
+                               char *data, size_t len,int track_Id)
+
 {
+	//skip AAC header since sdk expects raw data only
+	static void* datat;
+        if(track_Id == 1) {
+		datat=data;
+	} else {
+		datat=&data[AAC_HEADER_LENGTH];
+		len=len-AAC_HEADER_LENGTH;
+	}
 
 	frame->flags = flags;
 	frame->decodingTs = static_cast<UINT64>(dts.count()) / DEFAULT_TIME_UNIT_IN_NANOS;
 	frame->presentationTs = static_cast<UINT64>(pts.count()) / DEFAULT_TIME_UNIT_IN_NANOS;
-	frame->duration = DEFAULT_FRAME_DURATION_MS * HUNDREDS_OF_NANOS_IN_A_MILLISECOND;
+	frame->duration = 0;
 	frame->size = static_cast<UINT32>(len);
-	frame->frameData = reinterpret_cast<PBYTE>(data);
-	frame->trackId = DEFAULT_TRACK_ID;
+	frame->frameData = reinterpret_cast<PBYTE>(datat);
+	frame->trackId = track_Id;
 }
 
-static bool put_frame(shared_ptr<KinesisVideoStream> kinesis_video_stream, void* data, const nanoseconds &pts, const nanoseconds &dts,
-              FRAME_FLAGS flags, size_t len)
+static bool put_frame(shared_ptr<KinesisVideoStream> kinesis_video_stream, char* data, const nanoseconds &pts, const nanoseconds &dts,
+              FRAME_FLAGS flags, size_t len,int id)
 {
     Frame frame;
-    create_kinesis_video_frame(&frame, pts, dts, flags, data, len);
+    create_kinesis_video_frame(&frame, pts, dts, flags, data, len,id);
     return kinesis_video_stream->putFrame(frame);
 }
 
@@ -765,13 +761,14 @@ int kvsInit(kvsUploadCallback* callback, int stream_id)
 	LOG_DEBUG("kvsInit - Enter");
 	callbackObj = callback; 
 	static bool islogconfigdone = false;
+        char *defaultstream = NULL;
 	char stream_name[MAX_STREAM_NAME_LEN];
+	memset(stream_name, '\0', MAX_STREAM_NAME_LEN);
 
 	//init kvs log config
 	if( false == islogconfigdone )
 	{
-		char const *kvslogconfig;
-		char *defaultstream;
+		char const *kvslogconfig = NULL;
 
 		if (nullptr == (kvslogconfig = getenv(KVS_LOG_CONFIG_ENV_VER)))
 		{
@@ -782,15 +779,15 @@ int kvsInit(kvsUploadCallback* callback, int stream_id)
 
 		LOG_DEBUG("kvsInit - kvs log config :" << kvslogconfig);
 
-		if (nullptr == (defaultstream = getenv(DEFAULT_STREAM_NAME)))
-		{
-			SNPRINTF(stream_name, MAX_STREAM_NAME_LEN, "TEST-CVR");
-		}
-		else
-		{
-			SNPRINTF(stream_name, MAX_STREAM_NAME_LEN, defaultstream);
-		}
 		islogconfigdone = true;
+	}
+	if (nullptr == (defaultstream = getenv(DEFAULT_STREAM_NAME)))
+	{
+		SNPRINTF(stream_name, MAX_STREAM_NAME_LEN, "TEST-CVR");
+	}
+	else
+	{
+		SNPRINTF(stream_name, MAX_STREAM_NAME_LEN, defaultstream);
 	}
 
 	LOG_DEBUG("kvsInit - kvs Stream Name :" << stream_name);
@@ -813,7 +810,7 @@ int kvsInit(kvsUploadCallback* callback, int stream_id)
 }
 
 //kvs_video_stream init
-int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_abstime, unsigned short& kvsclip_livemode, unsigned short& contentchangestatus)
+int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highmem, unsigned short& contentchangestatus)
 {
     LOG_DEBUG("kvsStreamInit - Enter");
 
@@ -822,10 +819,8 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_abstim
 
     //update custom data parameters
     data.gkvsclip_audio = kvsclip_audio;
-    data.gkvsclip_abstime = kvsclip_abstime;
-    data.gkvsclip_livemode = kvsclip_livemode;
-
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): audio=%d, abstime=%d, livemode=%d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_abstime, kvsclip_livemode);
+    data.gkvsclip_highmem = kvsclip_highmem;
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): audio=%d, kvsclip_highmem =%d\n", __FILE__, __LINE__, kvsclip_audio,kvsclip_highmem);
 
     if(data.gkvsclip_audio)
     {
@@ -834,13 +829,6 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_abstim
     else
     {
         data.total_track_count = 1;
-    }
-
-    //Ensure video pipeline is deleted before stream init
-    if(data.gkvsclip_abstime)
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): Absolute time is enabled\n", __FILE__, __LINE__);
-
     }
 
     //In normal case init then recreate
@@ -867,51 +855,56 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_abstim
     return ret;
 }
 
-int kvsUploadFrames(unsigned short& clip_audio, unsigned short& clip_abstime, unsigned short& clip_livemode, RDKC_FrameInfo frameData,char* filename, bool isEOF = false )
-{ 
+#ifdef _HAS_XSTREAM_
+int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem, frameInfoH264 frameData,char* filename, bool isEOF = false ) {
+#else
+int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,char* filename, bool isEOF = false ) {
+#endif //_HAS_XSTREAM_
     FRAME_FLAGS kinesis_video_flags = FRAME_FLAG_NONE;
     unsigned short clipaudioflag = clip_audio;
-    unsigned short clipabstime = clip_abstime;
-    unsigned short cliplivemode = clip_livemode;
-    static int clipsize=0;
-
+    unsigned short cliphighmem = kvsclip_highmem;
+    static int single_clip_size=0;
+    static int frame_dropped_count=0;
+    static int frame_dropped_flag=0;
+    int track_id=1;
     //Check if the clip content has changed - videoaudioclip -> videoclip / videoclip -> videoaudioclip
-    if( data.gkvsclip_audio != clipaudioflag )
+    if( data.gkvsclip_audio != clipaudioflag || data.gkvsclip_highmem != cliphighmem || isstreamerror_reported ||  frame_dropped_flag)
     {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Change in clip content found : prior audio enable flag : %d , current audio enable flag : %d\n", 
-                __FILE__, __LINE__, data.gkvsclip_audio, clipaudioflag);
-        return 1;
+        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Recreating stream : prior audio enable flag : %d , current audio enable flag : %d"
+                                " or highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d"
+                                " or isstreamerror reported as TRUE : %d or consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", 
+                                __FILE__, __LINE__, data.gkvsclip_audio, clipaudioflag,data.gkvsclip_highmem,cliphighmem,isstreamerror_reported,frame_dropped_flag,frame_dropped_count);
+            isstreamerror_reported = false;
+            frame_dropped_flag = 0;
+            frame_dropped_count = 0;
+            return 1;
     }
-
-    STRNCPY(data.clip_name, filename, MAX_STREAM_NAME_LEN);
-    data.clip_name[MAX_STREAM_NAME_LEN -1] = '\0';
 
     int retstatus=0;
     size_t buffer_size = frameData.frame_size;
-    clipsize+=buffer_size;
-
-    //reset states
-    data.put_frame_flushed = false;
-
     //update timestamp
     data.h264_stream_supported = true;
     if (!data.stream_started)
     {
+        data.kinesis_video_stream->start(std::string(DEFAULT_CODECID_AACAUDIO),DEFAULT_AUDIO_TRACKID);
         data.stream_started = true;
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","Streaming Started \n");
     }
 
     if(data.first_frame)
     {
+        STRNCPY(data.clip_name, filename, MAX_STREAM_NAME_LEN);
+        data.clip_name[MAX_STREAM_NAME_LEN -1] = '\0';
+        std::string clipName(filename);
+        queueclipName.push_back(clipName);
+	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvs clip to server : %s \n", __FILE__, __LINE__,clipName.c_str());
         RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVRUPLOAD", "Setting the Key Frame flag (very first frame)\n");
         if ( (frameData.pic_type == 1) || (frameData.pic_type == 2))
         {
-            data.clip_senttokvssdk_time = chrono::duration_cast<milliseconds>(systemCurrentTime().time_since_epoch()).count();
             kinesis_video_flags = FRAME_FLAG_KEY_FRAME;
         }
         data.first_frame = false;
-    }
-    else
-    {
+    } else {
         kinesis_video_flags = FRAME_FLAG_NONE;
         if(isEOF)
         {
@@ -919,33 +912,54 @@ int kvsUploadFrames(unsigned short& clip_audio, unsigned short& clip_abstime, un
         }
     }
 
+    //stream type 10 is as per "RDKC_FrameInfo" structure which indicates aac data
+    if( frameData.stream_type == 10 )
+    {   
+        track_id = 2 ;
+    }
     std::chrono::nanoseconds frametimestamp_nano = std::chrono::milliseconds(frameData.frame_timestamp);
 
-    if(isEOF)
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvs clip size:%d\n", __FILE__, __LINE__,clipsize);
-        clipsize=0;
-        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): Sending EoFr\n", __FILE__, __LINE__);
-        data.kinesis_video_stream->putFrame(EOFR_FRAME_INITIALIZER);
-
+    if(isEOF) {
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): %s Sending EoFr\n", __FILE__, __LINE__,data.clip_name );
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): %s kvs clip size:%d\n", __FILE__, __LINE__,data.clip_name, single_clip_size );
+        single_clip_size = 0;
         //compare clip sent time with clip persisted time to detect hang in application
         if( data.clip_senttokvssdk_time > data.lastclippersisted_time ) {
             uint64_t cliptime_diff = data.clip_senttokvssdk_time - data.lastclippersisted_time;
             if( cliptime_diff > CVR_THRESHHOLD_COUNT_IN_MILLISECONDS) {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Threshold limit reached in upload failure exit process \n", __FILE__, __LINE__);
-                exit(1);
+                pid_t pid = getpid();
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Failed to get clip upload status - Timeout : %u : sending sigterm to Thread id : %d \n", __FUNCTION__, __LINE__,cliptime_diff,pid);
+                kinesisVideoStreamUninit(&data);
+                kill(pid, SIGTERM);
             }
         }
-    }
-    else
-    {
+        data.clip_senttokvssdk_time = chrono::duration_cast<milliseconds>(systemCurrentTime().time_since_epoch()).count();
+    } else {
+        single_clip_size += buffer_size;
         if (!put_frame(data.kinesis_video_stream, (void*)frameData.frame_ptr, std::chrono::nanoseconds(frametimestamp_nano),
-                    std::chrono::nanoseconds(frametimestamp_nano), kinesis_video_flags,  buffer_size))
-        {
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Error - Failed to put frame\n", __FILE__, __LINE__);
-            return -1;
+                    std::chrono::nanoseconds(frametimestamp_nano), kinesis_video_flags,  buffer_size,track_id)) {
+            //log every minute
+            if( (frame_dropped_count % 60) == 0 ) {
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Error - Failed to put frame : frame_dropped_count : %d : clip_name : %s stream type : %d\n",
+                    __FILE__, __LINE__, frame_dropped_count, data.clip_name, frameData.stream_type);
+            }
+            frame_dropped_count++;
+            retstatus = -1;
+        } else {
+            frame_dropped_count = 0;
         }
     }
 
-    return 0;
+    //Frame drop logic
+    //TBD - Logic need to change based on latest SDK where drop is counted based on SDK callback
+    if(data.gkvsclip_audio) {
+        if(frame_dropped_count > CVR_THRESHHOLD_FRAMEDROP_AUDIOVIDEO) {
+            frame_dropped_flag = 1;
+        }
+    } else {
+        if(frame_dropped_count > CVR_THRESHHOLD_FRAMEDROP_VIDEO) {
+            frame_dropped_flag = 1;
+        }
+    }
+    return retstatus;
 }

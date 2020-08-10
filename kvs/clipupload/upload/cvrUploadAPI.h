@@ -38,8 +38,9 @@ extern "C" {
 		       unsigned int eventDatetime, char *m_fpath , int motion_level_idx, 
 		       char* str_od_data, char* va_engine_version, bool smartTnEnabled,
 		       unsigned short& kvsclip_audio, unsigned short& kvsclip_abstime, unsigned short& kvsclip_livemode, int stream_id);
+	
+        int updateStatConfiguration();
 
-    int updateStatConfiguration();
 	/* close cvr upload */
         void cvr_upload_close();
 
