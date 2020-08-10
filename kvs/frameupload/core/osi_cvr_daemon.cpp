@@ -18,7 +18,7 @@
 # limitations under the License.
 ##########################################################################
 **/
-#include "cvr_daemon.h"
+#include "osi_cvr_daemon.h"
 #include "kvsupload.h"
 #ifdef BREAKPAD
 #include "breakpadwrap.h" 
@@ -26,11 +26,12 @@
 
 #ifdef XCAM2
 extern "C"{
- #include "streamUtils.h"
+   #include "streamUtils.h"
 }
-#define CVR_RESOLUTION_CONF     "/opt/usr_config/cvr.conf"
-#define CVR_RESOLUTION                 "resolution"
 #endif
+#define DATA_LEN                       128
+#define CVR_RESOLUTION_CONF            "/opt/usr_config/cvr.conf"
+#define CVR_RESOLUTION                 "resolution"
 #define KVSINITMAXRETRY         5
 #define KVS_SMARTRC "RFC_ENABLE_XCAM2_SMARTRC"
 int CVR::cvr_audio_status = CVR_AUDIO_UNKNOWN;
@@ -42,6 +43,7 @@ char CVR::va_engine_version [10] ={0};
 bool CVR::first_frame_of_clip = true;
 bool CVR::od_frame_upload_enabled = false;
 int CVR::top = -1;
+int CVR::isCVREnabled = 0;
 float CVR::low_bound_motion_score = 0.0;
 char fileName[256] = {0};
 #ifdef RTMSG
@@ -139,7 +141,7 @@ CVR::CVR(): init_flag(0),
 	//local_stream_err(0),
 	file_len(CVR_CLIP_DURATION),
 	file_num(CVR_CLIP_NUMBER),
-	file_format(CLOUD_RECORDER_VIDEO_TYPE_TS),
+	file_format(0),
 	m_streamid(DEF_CVR_CHANNEL),
 	has_an_iframe(0),
 	target_duration(0),
@@ -352,27 +354,10 @@ void CVR::on_message_smt_TN(rtMessageHeader const* hdr, uint8_t const* buff, uin
 void CVR::on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure)
 {
 
-#ifdef XFINITY_SUPPORT
-        static CloudRecorderConf CloudRecorderInfo;
-#else
-        static RdkCCloudRecorderConf CloudRecorderInfo;
-#endif
 
-	if ( reload_cvr_config ) {
-#ifdef XFINITY_SUPPORT
-        	memset(&CloudRecorderInfo, 0, sizeof(CloudRecorderConf));
-		if ( ReadCloudRecorderInfo(&CloudRecorderInfo) ) {
-#else
-        	memset(&CloudRecorderInfo, 0, sizeof(RdkCCloudRecorderConf));
-		if ( RdkCReadCloudRecorderSection(&CloudRecorderInfo) ) {
-#endif
-			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Reload cloud recorder configuration error!\n", __FILE__, __LINE__);
-		}
-		reload_cvr_config = 0;
-	}
 
 	// No need to process the analytics message if cvr is disabled or stream error
-	if ( (CloudRecorderInfo.enable == 0) || 
+	if ( ( isCVREnabled == 0) || 
              (local_stream_err == 1) ) {
 	
 		return;
@@ -913,6 +898,7 @@ int CVR::get_audio_stream_id(int audio_index)
 {
         int i = 0;
         int ret = -1;
+#ifndef OSI
         AUD_Conf aconf;
 
         if (audio_index < AUDIO_STREAM_INDEX_0 || audio_index >= AUDIO_STREAM_INDEX_MAX) {
@@ -950,35 +936,11 @@ int CVR::get_audio_stream_id(int audio_index)
                         }
                 }
         }
-
+#endif
         return ret;
 
 }
 
-/** @description: read configuration
- *  @param[in] pCloudRecorderInfo : CloudRecorderConf pointer OR RdkCCloudRecorderConf pointer
- *  @return: int
- */
-#ifdef XFINITY_SUPPORT
-int CVR::cvr_read_config(CloudRecorderConf *pCloudRecorderInfo)
-{
-        // Read cloud recorder server info
-        memset(pCloudRecorderInfo, 0, sizeof(CloudRecorderConf));
-        if (ReadCloudRecorderInfo(pCloudRecorderInfo))
-#else
-int CVR::cvr_read_config(RdkCCloudRecorderConf *pCloudRecorderInfo)
-{
-        // Read cloud recorder server info
-        memset(pCloudRecorderInfo, 0, sizeof(RdkCCloudRecorderConf));
-        if (RdkCReadCloudRecorderSection(pCloudRecorderInfo))
-#endif
-        {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read cloud recorder configuration error!\n", __FILE__, __LINE__);
-                return -1;
-        }
-        return 0;
-
-}
 
 /** @description: enable cvr audio
  *  @param[in] val : bool
@@ -986,6 +948,7 @@ int CVR::cvr_read_config(RdkCCloudRecorderConf *pCloudRecorderInfo)
  */
 int CVR::cvr_enable_audio(bool val)
 {
+#ifndef OSI
         int ret = 0;
         int cfg_chg_flag = 0;
         char cvrAudioMsg[CGI_ERR_MSG_SIZE_MAX];
@@ -1097,7 +1060,7 @@ int CVR::cvr_enable_audio(bool val)
 	if(g_pconf) {
 		free(g_pconf);
 	}
-
+#endif
         return 0;
 
 }
@@ -1167,11 +1130,11 @@ void CVR::cvr_init_audio_stream()
 }
 #endif //_HAS_XSTREAM_
 
-/** @description: check cvr audio
+/** @description: set cvr audio
  *  @param[in] void
- *  @return: void
+ *  @return: int
  */
-void CVR::cvr_check_audio()
+int CVR::cvr_check_rfcparams()
 {
         /* set cvr audio through RFC files */
         char value[MAX_SIZE] = {0};
@@ -1179,32 +1142,68 @@ void CVR::cvr_check_audio()
         char *configParam = NULL;
         int prev_cvr_audio_status =  cvr_audio_status;
 
-        if (RDKC_SUCCESS != rdkc_get_user_setting(CVR_AUDIO_STATUS, usr_value)) {
-                configParam = (char*)rdkc_envGet(CVR_AUDIO_STATUS);
-        } else {
-                configParam = usr_value;
-        }
-
-        if(strcmp(configParam, RDKC_TRUE) == 0) {
-#ifndef XHB1
-                cvr_audio_status = CVR_AUDIO_ENABLED;
-                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
-#else
-                cvr_audio_status = CVR_AUDIO_DISABLED;
-                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): Forcing CVR audio status to disable for xhb1.\n", __FILE__, __LINE__);
+#ifndef XCAM2
+#ifndef XHB1 
+        /* Check if RFC configuration file exists */
+        if( RDKC_SUCCESS == IsRFCFileAvailable(RFCFILE) ) {
+                /* Get the value from RFC file */
+                if( RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, CVR_AUDIO, value) ) {
+                        if( strcmp(value, RDKC_TRUE) == 0 ) {
 #endif
-        } else {
-                cvr_audio_status = CVR_AUDIO_DISABLED;
-                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
+#endif
+                                if (RDKC_SUCCESS != rdkc_get_user_setting(CVR_AUDIO_STATUS, usr_value)) {
+                                        configParam = (char*)rdkc_envGet(CVR_AUDIO_STATUS);
+                                }
+				else {
+                                        configParam = usr_value;
+                                }
+                                if(strcmp(configParam, RDKC_TRUE) == 0) {
+                                        cvr_audio_status = CVR_AUDIO_ENABLED;
+                                        RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
+                                }
+				else {
+                                        cvr_audio_status = CVR_AUDIO_DISABLED;
+                                        RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
+                                }
+#ifndef XCAM2
+#ifndef XHB1
+                        }
+                        else if( strcmp(value, RDKC_FALSE) == 0 ) {
+                                cvr_audio_status = CVR_AUDIO_DISABLED;
+                                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
+                        }
+                }
+		else
+		{	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): cvr_set_audio : cvr audio feature is not available in rfc file.\n",__FILE__, __LINE__);
+			cvr_audio_status = CVR_AUDIO_DISABLED;
+		}
+#endif
+#endif
+        //RFC check for kvs smartrc
+        memset(value,0,MAX_SIZE);
+        if(RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, KVS_SMARTRC, value)) {
+                if( strcmp(value, RDKC_TRUE) == 0 ) {
+                            kvsclip_highmem = 1;
+                    }
         }
 
+        /* if the get value from rfc fails, dont do anything. use defult settings done by polling config. */
+#ifndef XCAM2
+#ifndef XHB1
+        } else {
+            /* if the rfc files are not available, disable CVR audio */
+            cvr_audio_status = CVR_AUDIO_DISABLED;
+            RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable since rfc file is not available\n", __FILE__, __LINE__);
+        }
+#endif
+#endif
         if( prev_cvr_audio_status != cvr_audio_status ) {
                 if( CVR_AUDIO_ENABLED == cvr_audio_status ) {
-                        RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): CVR audio is enabled.\n", __FILE__, __LINE__);
-                        kvsclip_audio=1;
-                        if(init_flag == 1){
-                            cvr_init_audio_stream();
-                        }
+					  RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): CVR audio is enabled.\n", __FILE__, __LINE__);
+					  kvsclip_audio=1;
+					  if(init_flag == 1){
+					  cvr_init_audio_stream();
+					  }
                 }
                 else if( CVR_AUDIO_DISABLED == cvr_audio_status ) {
                         RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): CVR audio is disabled.\n", __FILE__, __LINE__);
@@ -1233,16 +1232,6 @@ void CVR::cvr_check_audio()
                                 cvr_flag &= ~RDKC_STREAM_FLAG_AUDIO;
                             }
 #endif //_HAS_XSTREAM_
-                        }
-                }
-        }
-
-        /* RFC check for kvs smartrc */
-        if( RDKC_SUCCESS == IsRFCFileAvailable(RFCFILE) ) {
-                memset(value,0,MAX_SIZE);
-                if(RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, KVS_SMARTRC, value)) {
-                        if( strcmp(value, RDKC_TRUE) == 0 ) {
-                                kvsclip_highmem = 1;
                         }
                 }
         }
@@ -1302,7 +1291,7 @@ void CVR::setCVRStreamId(int streamid)
  *  @param[in] pCloudRecorderInfo - CloudRecorderConf pointer
  *  @return: CVR_Failure is failed , CVR_SUCCESS if success
  */
-int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
+int CVR::cvr_init(unsigned short isAudio,unsigned short isHighMem)
 {
 	int rdkc_ret = 1;
 
@@ -1321,9 +1310,11 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
                 return CVR_FAILURE;
         }
 
-        kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
-        kvsclip_highmem = atoi(argv[2]);    /* highmem flag */
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
+        //kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
+        kvsclip_audio = isAudio;/* audio enable flag */
+        kvsclip_highmem = isHighMem;
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", 
+                                                                __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
 
         // Init cvr flag
 #ifdef _HAS_XSTREAM_
@@ -1409,25 +1400,30 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
                 sleep(1);
                 check_polling_config_timeout --;
         }
-        rdkc_ret = cvr_read_config(pCloudRecorderInfo);
-	if (0 == rdkc_ret)
-	{
-		RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is successful, enable=%d!\n", __LINE__, pCloudRecorderInfo->enable);
-	}
-	else
-	{
-		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, pCloudRecorderInfo->enable);
-	}
 
-	/* initialise cvr upload */
-        rdk_logger_init("/etc/debug.ini");
+	kvs_provision_info_t * cvrConfig = (kvs_provision_info_t*)malloc (sizeof(kvs_provision_info_t));
+	if(cvrConfig)
+	{
+                rdkc_ret  = readKVSConfig(cvrConfig);
 
+                if (0 == rdkc_ret)
+		{
+		        isCVREnabled = atoi(cvrConfig->enable);
+                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is successful, enable=%d and fragment duration is %d!\n", __LINE__, isCVREnabled,file_len);
+		}
+		else
+		{
+                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, isCVREnabled);
+		}
+	        free(cvrConfig);
+	}
+#ifndef _HAS_XSTREAM_
         if (access(CVR_CLIP_PATH, F_OK))
         {
                 sprintf(cmd, "mkdir %s", CVR_CLIP_PATH);
                 system(cmd);
         }
-
+#endif
     /* Permanently enabling audio in the device */
     //cvr_enable_audio(true);
 }
@@ -1713,7 +1709,7 @@ bool CVR::pushFrames(RDKC_FrameInfo& frameInfo,
  *  @return: void
  */
 #ifndef _HAS_XSTREAM_
-void CVR::do_cvr(void * pCloudRecorderInfo)
+void CVR::do_cvr()
 {
     int ret = RDKC_FAILURE;
     int rdkc_ret = 1;
@@ -1726,13 +1722,8 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     unsigned short audioFrameCount = 0;
     unsigned short totalFramesinClip = 0;
     unsigned long cliplength_ms = 0;
-    pthread_t thread_id;
-    int ret_videoStreamConfig = -1;
-#ifdef XFINITY_SUPPORT
-    CloudRecorderConf *CloudRecorderInfo  = (CloudRecorderConf*)pCloudRecorderInfo ;
-#else
-    RdkCCloudRecorderConf *CloudRecorderInfo = (RdkCCloudRecorderConf*)pCloudRecorderInfo;
-#endif
+    pthread_t thread_id; 
+
     while (!term_flag)
     {
 
@@ -1748,20 +1739,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         }
         else {
             enable_debug = 0;
-        }
-
-        if (reload_cvr_flag)
-        {
-            rdkc_ret = cvr_read_config(CloudRecorderInfo);
-            if (0 == rdkc_ret)
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-            }
-            else
-            {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-            }
-            reload_cvr_flag = 0;
         }
 
         // Need close session if disconnect flag was set
@@ -1807,11 +1784,11 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             local_stream_err = 0;
         }
 
-        //check cvr audio
-        cvr_check_audio();
+        //check cvr rfc params
+        cvr_check_rfcparams();
 
         // CVR not enabled
-        if (CloudRecorderInfo->enable == 0)
+        if ( isCVREnabled == 0)
         {
             if (init_flag)
             {
@@ -2110,33 +2087,20 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 			get_motion_statistics_info(&cvr_key_frame, &frame_num_count, &event_type_raw, &motion_level_raw_sum);
 #endif //_HAS_XSTREAM_
         }
-        while ((long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
+        while ((long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
         {
             if (term_flag || local_stream_err)
             {
                 break;
             }
-            // reload cvr config
-            if (reload_cvr_flag)
-            {
-                rdkc_ret = cvr_read_config(CloudRecorderInfo);
-                if (0 == rdkc_ret)
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-                }
-                else
-                {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-                }
-                reload_cvr_flag = 0;
-            }
+            
             // CVR disabled
-            if (CloudRecorderInfo->enable == 0)
+            if (isCVREnabled == 0)
             {
                 RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
                 break;
             }
-            file_len = CloudRecorderInfo->video_duration;
+           
             if(cvr_flag & RDKC_STREAM_FLAG_VIDEO )
             {
 #ifdef _HAS_XSTREAM_
@@ -2154,10 +2118,10 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 {
 #ifdef _HAS_XSTREAM_
 					if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
-							&& (long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
+							&& (long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
 #else
 					if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame.pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame.pic_type)
-							&& (long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
+							&& (long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
 #endif //_HAS_XSTREAM_
                     {
                         //This I frame is almost at the end of clip file, we'll keep it, to write into next clip file.
@@ -2198,12 +2162,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
                         //Get the timestamp of first frame of every second
 #ifdef _HAS_XSTREAM_
-						if (compare_timestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
+						if (compareTimestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
 						{
 							get_motion_statistics_info(cvr_frame, &frame_num_count,&event_type_raw, &motion_level_raw_sum);
 						}
 #else
-						if (compare_timestamp(cvr_frame.frame_timestamp,start_msec) <= 1000 * motion_level_idx)
+						if (compareTimestamp(cvr_frame.frame_timestamp,start_msec) <= 1000 * motion_level_idx)
 						{
 							get_motion_statistics_info(&cvr_frame, &frame_num_count,&event_type_raw, &motion_level_raw_sum);
 						}
@@ -2260,7 +2224,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 usleep(10000);
                 continue;
             }
-
+#ifndef OSI
             //rest memory is quite low. shouldn't write more frames.sleep and check.
             while(sc_get_sys_free_mem() < 5000000)
             {
@@ -2270,6 +2234,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 sleep(2);
             }
+#endif
             lessMemoryCount = 0;
         }
 
@@ -2343,12 +2308,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 #endif //_HAS_XSTREAM_
 							//Get the timestamp of first frame of every second
 #ifdef _HAS_XSTREAM_
-							if (compare_timestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
+							if (compareTimestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
 							{
 								get_motion_statistics_info(cvr_frame, &frame_num_count,&event_type_raw, &motion_level_raw_sum);
 							}
 #else
-							if (compare_timestamp(cvr_frame.frame_timestamp,start_msec) <= 1000 * motion_level_idx)
+							if (compareTimestamp(cvr_frame.frame_timestamp,start_msec) <= 1000 * motion_level_idx)
 							{
 								get_motion_statistics_info(&cvr_frame, &frame_num_count,&event_type_raw, &motion_level_raw_sum);
 							}
@@ -2553,7 +2518,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     }
 }
 #else
-void CVR::do_cvr(void * pCloudRecorderInfo)
+void CVR::do_cvr()
 {
     int ret = RDKC_FAILURE;
     int rdkc_ret = 1;
@@ -2567,11 +2532,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     unsigned short totalFramesinClip = 0;
     int ret_videoStreamConfig = -1;
 
-#ifdef XFINITY_SUPPORT
-    CloudRecorderConf *CloudRecorderInfo  = (CloudRecorderConf*)pCloudRecorderInfo ;
-#else
-    RdkCCloudRecorderConf *CloudRecorderInfo = (RdkCCloudRecorderConf*)pCloudRecorderInfo;
-#endif
     while (!term_flag)
     {
         /* reset all motion level(no motion, low motion, medium motion, high motion) counters */
@@ -2586,20 +2546,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         }
         else {
             enable_debug = 0;
-        }
-
-        if (reload_cvr_flag)
-        {
-            rdkc_ret = cvr_read_config(CloudRecorderInfo);
-            if (0 == rdkc_ret)
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-            }
-            else
-            {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-            }
-            reload_cvr_flag = 0;
         }
 
         // Need close session if disconnect flag was set
@@ -2623,11 +2569,11 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             local_stream_err = 0;
         }
 
-        //check cvr audio
-        cvr_check_audio();
+        //check cvr rfc params
+        cvr_check_rfcparams();
 
         // CVR not enabled
-        if (CloudRecorderInfo->enable == 0)
+        if (isCVREnabled == 0)
         {
             if (init_flag)
             {
@@ -2766,8 +2712,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         }
 
         clipStatus = CVR_CLIP_GEN_START;
-        file_len = CloudRecorderInfo->video_duration;
-        file_format = CloudRecorderInfo->video_format;
         frame_num_count = 0;
         motion_level_raw_sum = 0.0;
         event_type_raw = 0;
@@ -2802,33 +2746,18 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             //Get the motion statistics information
             get_motion_statistics_info(cvr_key_frame, &frame_num_count, &event_type_raw, &motion_level_raw_sum);
         }
-        while ((long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
+        while ((long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
         {
             if (term_flag || local_stream_err)
             {
                 break;
             }
-            // reload cvr config
-            if (reload_cvr_flag)
-            {
-                rdkc_ret = cvr_read_config(CloudRecorderInfo);
-                if (0 == rdkc_ret)
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-                }
-                else
-                {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
-                }
-                reload_cvr_flag = 0;
-            }
             // CVR disabled
-            if (CloudRecorderInfo->enable == 0)
+            if (isCVREnabled == 0)
             {
                 RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
                 break;
             }
-            file_len = CloudRecorderInfo->video_duration;
 
             ccode = objConsumer.ReadFrame( m_streamid, FORMAT_H264, cvr_frame );
 
@@ -2841,7 +2770,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             else if (0 == ccode)
             {
                 if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
-                        && (long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
+                        && (long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
                 {
                     //This I frame is almost at the end of clip file, we'll keep it, to write into next clip file.
                     has_an_iframe = 1;
@@ -2869,7 +2798,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
                     if (XSTREAM_STREAM_TYPE_AAC != cvr_frame->stream_type) {
                         //Get the timestamp of first frame of every second
-                        if (compare_timestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
+                        if (compareTimestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
                         {
                             get_motion_statistics_info(cvr_frame, &frame_num_count,&event_type_raw, &motion_level_raw_sum);
                         }
@@ -2900,7 +2829,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 usleep(10000);
                 continue;
             }
-
+#ifndef OSI
             //rest memory is quite low. shouldn't write more frames.sleep and check.
             while(sc_get_sys_free_mem() < 5000000)
             {
@@ -2911,6 +2840,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 sleep(2);
             }
             lessMemoryCount = 0;
+#endif
         }
 
         if (!has_an_iframe)     //file length reached but we haven't got an I frame. This is to look for a coming I frame.
@@ -2962,7 +2892,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
                         if (XSTREAM_STREAM_TYPE_AAC != cvr_frame->stream_type) {
                             //Get the timestamp of first frame of every second
-                            if (compare_timestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
+                            if (compareTimestamp(cvr_frame->frame_timestamp,start_msec) <= 1000 * motion_level_idx)
                             {
                                 get_motion_statistics_info(cvr_frame, &frame_num_count,&event_type_raw, &motion_level_raw_sum);
                             }
@@ -3090,7 +3020,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
  *  @param[in] argv - char pointer
  *  @return: int
  */
-int CVR::cvr_close(char *argv[])
+int CVR::cvr_close()
 {
 	//rtmessageCVRThreadExit = true;
         RFCRelease();
@@ -3174,26 +3104,87 @@ void CVR::reload_config(int dummy)
  */
 int main(int argc, char *argv[])
 {
+    const char* debugConfigFile = NULL;
+    const char* configFilePath = NULL;
+    int itr=0;
+    // Init signal handler
+    (void) signal(SIGTERM, CVR::self_term);
+    (void) signal(SIGUSR1, CVR::reload_config);
+    unsigned short kvsclip_audio =0;/* audio enable flag */
+    unsigned short useHighMem =0;
+    int streamId = DEF_CVR_CHANNEL;
+    while (itr < argc)
+    {
+        if(strcmp(argv[itr],"--debugconfig")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+                debugConfigFile = argv[itr];
+            }
+            else
+            {
+                break;
+            }
+        }
 
-#ifdef XFINITY_SUPPORT
-        CloudRecorderConf CloudRecorderInfo;
-#else
-        RdkCCloudRecorderConf CloudRecorderInfo;
-#endif
+        if(strcmp(argv[itr],"--configFilePath")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+                configFilePath = argv[itr];
+            }
+            else
+            {
+                break;
+            }
+        }
 
-        rdk_logger_init("/etc/debug.ini");
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s start ...\n", __FILE__);
+	if(strcmp(argv[itr],"--kvsAudioEnabled")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+                kvsclip_audio = (unsigned short) atoi(argv[itr]);
+            }
+            else
+            {
+                break;
+            }
+        }
 
+	if(strcmp(argv[itr],"--streamId")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+                streamId = (unsigned short) atoi(argv[itr]);
+            }
+            else
+            {
+                break;
+            }
+        }
+	if(strcmp(argv[itr],"--kvsHighmem")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+                useHighMem = (unsigned short) atoi(argv[itr]);
+            }
+            else
+            {
+                break;
+            }
+        }
 
-#ifdef XFINITY_SUPPORT
-        memset(&CloudRecorderInfo, 0, sizeof(CloudRecorderConf));
-#else
-        memset(&CloudRecorderInfo, 0, sizeof(RdkCCloudRecorderConf));
-#endif
-
-        // Init signal handler
-        (void) signal(SIGTERM, CVR::self_term);
-        (void) signal(SIGUSR1, CVR::reload_config);
+        itr++;
+    }
+    if(rdk_logger_init(debugConfigFile) == 0) 
+    {
+	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s rdk logger enabled \n", __FILE__);;
+    }
 
 	/* Registering callback function for Breakpadwrap Function */
 #ifdef BREAKPAD
@@ -3203,18 +3194,18 @@ int main(int argc, char *argv[])
 #endif
 	CVR cvr_object;
 
-        cvr_object.setCVRStreamId(DEF_CVR_CHANNEL);
+        cvr_object.setCVRStreamId(streamId);
 
-	int ret = cvr_object.cvr_init(argc,argv,&CloudRecorderInfo);
+	int ret = cvr_object.cvr_init(kvsclip_audio,useHighMem);
 
 	if(CVR_FAILURE == ret) {
 		goto error_exit;
 	}
 
-	cvr_object.do_cvr(&CloudRecorderInfo);
+	cvr_object.do_cvr();
 
 error_exit:
-	cvr_object.cvr_close(argv);
+	cvr_object.cvr_close();
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s exit! - sigterm flag - %d \n", __FILE__, __LINE__, argv[0],CVR::term_flag);
 	return 0;
 }

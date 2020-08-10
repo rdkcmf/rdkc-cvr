@@ -37,7 +37,7 @@ LIBS = $(LIBFLAGS)
 CFLAGS  += -I$(RDK_PROJECT_ROOT_PATH)/cvr/kvs/clipupload/upload/
 CFLAGS  += -I$(RDK_PROJECT_ROOT_PATH)/cvr/kvs/clipupload/core/
 CFLAGS  += -DRTMSG
-CFLAGS  += -std=c++11
+CFLAGS  += -g -std=c++11
 CFLAGS  += -Wno-error
 CFLAGS	+= -pthread
 CFLAGS  += -fpermissive
@@ -59,22 +59,31 @@ SRC  += cvr_daemon.cpp
 
 OBJ = $(SRC:.cpp=.o)
 
-TARGET = cvr_daemon_kvs
+RELEASE_TARGET = cvr_daemon_kvs
+DEBUG_TARGET = cvr_daemon_kvs_debug
 
-all: $(OBJ) $(TARGET) install
+all: $(OBJ) $(RELEASE_TARGET) $(DEBUG_TARGET) install
 
-$(TARGET): $(OBJ)
+$(RELEASE_TARGET): $(OBJ)
+	$(CXX) $(CFLAGS) -o $(@) $^ $(LIBS)  #-Wall -Wno-error
+	$(STRIP) $(RELEASE_TARGET)
+
+$(DEBUG_TARGET): $(OBJ)
 	$(CXX) $(CFLAGS) -o $(@) $^ $(LIBS)  #-Wall -Wno-error
 
 %.o:%.cpp
 	 $(CXX) -c $< $(CFLAGS)  -o $@  # -Wall -Wno-error
 
-
 clean: uninstall
-	$(RM) -f $(OBJ) $(TARGET)
+	$(RM) -f $(OBJ) $(RELEASE_TARGET) $(DEBUG_TARGET)
 
 install:
-	$(INSTALL) -D $(TARGET) ${RDK_SDROOT}/usr/local/bin/$(TARGET)
+ifneq ($(XCAM_MODEL), XHB1)
+	$(PLATFORM_BREAKPAD_BINARY) $(DEBUG_TARGET) > $(RELEASE_TARGET).sym
+	mv -f $(RELEASE_TARGET).sym  $(PLATFORM_SYMBOL_PATH)
+	echo "kvs frame upload debug symbol created for $(RELEASE_TARGET)"
+endif
+	$(INSTALL) -D $(RELEASE_TARGET) ${RDK_SDROOT}/usr/local/bin/$(RELEASE_TARGET)
 
 uninstall:
-	$(RM) -f $(RDK_SDROOT)/usr/local/bin/$(TARGET)
+	$(RM) -f $(RDK_SDROOT)/usr/local/bin/$(RELEASE_TARGET)

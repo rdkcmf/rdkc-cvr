@@ -19,7 +19,7 @@
 <environment>
   <components>
     <cvr>
-      <dependencies>sdk,rdklogger,configMgr,gstreamer-1.4.4,mongoose,gst-plugins-base-1.4.4,gst-plugins-bad-1.4.4,fcgi,libxml2,curl,openssl,webrtc-streaming-node,sysapps,utility,sysint,plugins,breakpad,breakpadwrap,libsyswrapper</dependencies>
+      <dependencies>sdk,rdklogger,configMgr,gstreamer-1.4.4,mongoose,gst-plugins-base-1.4.4,gst-plugins-bad-1.4.4,fcgi,libxml2,curl,openssl,webrtc-streaming-node,sysapps,utility,sysint,plugins,breakpad,breakpadwrap,camera-hal,libsyswrapper</dependencies>
     </cvr>
   </components>
 </environment>

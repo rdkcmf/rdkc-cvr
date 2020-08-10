@@ -29,7 +29,7 @@ include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
 
 SRCS  += kvsupload.cpp memorystats.cpp cvrUploadAPI.cpp
 
-CFLAGS  += -fPIC
+CFLAGS  += -g -std=c++14 -fPIC
 CFLAGS+= -I$(RDK_PROJECT_ROOT_PATH)/cvr/clipupload/upload/
 CFLAGS+= -DXFINITY_SUPPORT
 
@@ -39,24 +39,34 @@ endif
 
 OBJS  := $(SRCS:.cpp=.o)
 
-BIN   =   libcvrupload_kvs.so
+RELEASE_TARGET   =   libcvrupload_kvs.so
+DEBUG_TARGET   =   libcvrupload_kvs_debug.so
 
-all: $(BIN) install
+all: $(RELEASE_TARGET) $(DEBUG_TARGET) install
 
 INSTALL = install
 RM = rm
 
 $(OBJS): %.o: %.cpp
-	$(CXX) -c $(CFLAGS) $< -std=c++14 -o $@
+	$(CXX) -c $(CFLAGS) $< -o $@
 
-$(BIN): $(OBJS)
+$(RELEASE_TARGET): $(OBJS)
 	$(CXX) $(CFLAGS) -shared -o $@ $(OBJS) $(LIBFLAGS)
-clean:
-	$(RM) -rf $(OBJS) *~ $(BIN)
+	$(STRIP) $(RELEASE_TARGET)
 
+$(DEBUG_TARGET): $(OBJS)
+	$(CXX) $(CFLAGS) -shared -o $@ $(OBJS) $(LIBFLAGS)
+
+clean:
+	$(RM) -rf $(OBJS) *~ $(RELEASE_TARGET) $(DEBUG_TARGET)
+	
 install:
-	$(INSTALL) -D $(BIN) ${RDK_FSROOT_PATH}/usr/lib/$(BIN)
+ifneq ($(XCAM_MODEL), XHB1)
+	$(PLATFORM_BREAKPAD_BINARY) $(DEBUG_TARGET) > $(RELEASE_TARGET).sym
+	mv -f $(RELEASE_TARGET).sym  $(PLATFORM_SYMBOL_PATH)
+	echo "kvs clip upload debug symbol created for $(RELEASE_TARGET)"
+endif
+	$(INSTALL) -D $(RELEASE_TARGET) ${RDK_FSROOT_PATH}/usr/lib/$(RELEASE_TARGET)
 
 uninstall:
-	$(RM) -f $(RDK_FSROOT_PATH)/usr/lib/$(BIN)
-
+	$(RM) -f $(RDK_FSROOT_PATH)/usr/lib/$(RELEASE_TARGET) $(RDK_FSROOT_PATH)/usr/lib/$(DEBUG_TARGET)

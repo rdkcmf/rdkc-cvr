@@ -64,18 +64,10 @@
 extern "C"
 {
 #endif
-
-#ifndef XFINITY_SUPPORT
-#include "rdkc_config_sections.h"
-#endif
-#include "polling_config.h"
-#include "event_config.h"   //EventType
-#include "AUD_conf.h"	//AUD_Conf
-#include "main.h"   //ReadAllConf
-#include "iav_ioctl.h" //IAV_PIC_TYPE_I_FRAME
-#include "cgi_image.h"	//set_audio_mic_enable_2
+#include "sysUtils.h"
 #include "rdk_debug.h"
 #include "dev_config.h"
+#include "polling_config.h"
 #ifdef __cplusplus
 }
 #endif
@@ -84,7 +76,7 @@ extern "C"
 #define RDKC_STREAM_FLAG_PADDING                         0x04
 #define RDKC_STREAM_FLAG_ABSTIMESTAMP                    0x08
 #define MAX_ENCODE_STREAM_NUM				4
-
+#define XFINITY_POLLING_SEQ_FILE   "/tmp/.xfinity_polling_sequence"
 #define VIDEO_DURATION_MAX              60	// 60 senconds
 #define XFINITY_POLLING_CONFIG_TIMEOUT	90
 
@@ -95,14 +87,16 @@ extern "C"
 #endif
 
 #define IP_ACQUIRED_FILE                 "/tmp/.IPAcquired"
-
+#ifdef OSI
+#define _SUPPORT_OBJECT_DETECTION_IV_
+#endif
 //extern struct ThreadControl hydraThreadControl[];
 //extern ThreadControl hydraThreadControl[];
 #define CVR_FAILURE			-1
 #define CVR_SUCCESS			 0
 
 #define CVR_CLIP_PATH                    "/tmp/cvr"
-#define CVR_CLIP_DURATION              	 20   //seconds
+#define CVR_CLIP_DURATION              	 15   //seconds
 #define CVR_CLIP_NUMBER                	 2
 #define CVR_FILE_PATH_LEN                256
 
@@ -148,6 +142,7 @@ static int enable_debug = 0;
 // to dump the h264 file into a file, please make the DEBUG_DUMP_H264 to '1'
 #define DEBUG_DUMP_H264 0
 #endif //_HAS_XSTREAM_
+
 
 using namespace std;
 typedef enum cvr_clip_status
@@ -201,14 +196,36 @@ typedef struct vai_result
         uint64_t   timestamp;			// framePTS
         uint16_t   num;         		// number of objects detected
         vai_object_t vai_objects[OD_MAX_NUM];   // The object result is placed by od_id and save from 0 -> max
-#ifdef _SUPPORT_OBJECT_DETECTION_IV_
         uint16_t   event_type;                  // Event type
         float   motion_level;                   // A percent of pixels under motion, range 0.0f~100.0f
         float   motion_level_raw;               // A percent of pixels under motion, range 0.0f~100.0f
-#endif
         vai_od_frame_data_t od_frame_data;
 	uint64_t  curr_time;			// Time of day
 } vai_result_t;
+
+typedef enum
+{
+        EVENT_TYPE_MIN,
+        EVENT_TYPE_INPUT1 = EVENT_TYPE_MIN,
+        EVENT_TYPE_INPUT2,
+        EVENT_TYPE_MOTION,
+        EVENT_TYPE_PIR,
+        EVENT_TYPE_AUDIO,
+        EVENT_TYPE_HTTP,
+        EVENT_TYPE_PERIOD,
+        EVENT_TYPE_CONTINUE,
+        EVENT_TYPE_INPUT3,
+        EVENT_TYPE_INPUT4,
+        EVENT_TYPE_PUSHBUTTON,
+        EVENT_TYPE_TAMPER,
+        EVENT_TYPE_PEOPLE,
+        EVENT_TYPE_LOWTEMPERATURE,
+        EVENT_TYPE_HIGHTEMPERATURE,
+        EVENT_TYPE_BATTERYLOW,
+        EVENT_TYPE_RESUMEFROMLOWBATT,
+        EVENT_TYPE_RESUMEFROMLOWHIGHTEMP,
+        EVENT_TYPE_MAX
+} EventType;
 
 class CVR : public kvsUploadCallback
 {
@@ -232,23 +249,13 @@ class CVR : public kvsUploadCallback
 #endif //_HAS_XSTREAM_
       int cvr_daemon_check_filelock(char *fname);
       int get_audio_stream_id(int audio_index);
-
-#ifdef XFINITY_SUPPORT
-      All_Conf *g_pconf;
-      int cvr_read_config(CloudRecorderConf *pCloudRecorderInfo);
-#else
-      int cvr_read_config(RdkCCloudRecorderConf *pCloudRecorderInfo);
-#endif
       int cvr_enable_audio(bool val);
-      void cvr_check_audio();
-
+      int cvr_check_rfcparams();
       int get_quiet_interval();
       int cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t cvr_starttime);
       void cvr_init_audio_stream();
 
       static int cvr_audio_status;
-      //volatile sig_atomic_t reload_cvr_flag;
-      //volatile sig_atomic_t term_flag;
 
       int init_flag;
       int load_config_flag;
@@ -258,8 +265,6 @@ class CVR : public kvsUploadCallback
       time_t cvr_starttime;
       char starttime[200];
       char endtime[200];
-      //struct timeval start_t;
-      //struct timeval end_t;
       struct timespec start_t;
       struct timespec end_t;
       uint8_t  motion_statistics_info[VIDEO_DURATION_MAX + 8];
@@ -298,17 +303,14 @@ class CVR : public kvsUploadCallback
       XStreamerConsumer objConsumer;
       frameInfoH264 *cvr_frame;
       frameInfoH264 *cvr_key_frame;
+      curlInfo p_CurlInfo;
       stream_hal_stream_config _videoConfig;
       int32_t _streamFd;
 
-#if DEBUG_DUMP_H264
+#ifdef DEBUG_DUMP_H264
       static int write_bytes;
       static FILE *fp;
       static int frame_num;
-
-      //For audio data
-      static int frame_num_audio;
-      static FILE* fpAudioAAC;
 #endif //DEBUG_DUMP_H264
 #else
       RDKC_FrameInfo cvr_frame;
@@ -393,10 +395,11 @@ class CVR : public kvsUploadCallback
     public:
       CVR();
       ~CVR();
-      int cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo);
-      void do_cvr(void * pCloudRecorderInfo);
-      int cvr_close(char *argv[]);
+      int cvr_init(unsigned short kvsclip_audio,unsigned short useHighMem);
+      void do_cvr();
+      int cvr_close();
       static volatile sig_atomic_t term_flag;
+      static int  isCVREnabled;
       static void self_term(int sig);
       static volatile sig_atomic_t reload_cvr_flag;
       static volatile sig_atomic_t reload_cvr_config;

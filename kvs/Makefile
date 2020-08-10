@@ -16,12 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-ifeq ($(KVS_FRAMEUPLOAD), no)
+ifneq ($(XCAM_MODEL), XHB1)
 SUBDIRS += clipupload/upload
 SUBDIRS += clipupload/core
-else
-SUBDIRS += frameupload
 endif
+SUBDIRS += frameupload
 all:
 	@for i in `echo $(SUBDIRS)`; do \
 		$(MAKE) -C $$i $@ || exit 1; \

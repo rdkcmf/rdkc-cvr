@@ -265,8 +265,7 @@ class CVR {
       video_stream_config_t *v_stream_conf;
       int m_streamid;
       unsigned short kvsclip_audio;/* audio enable flag */
-      unsigned short kvsclip_abstime;/* abs timestamp flag */
-      unsigned short kvsclip_livemode;/* live mode flag */
+      unsigned short kvsclip_highmem;/* highmem flag */
 
 	/* rtmessage */
       static int top;
