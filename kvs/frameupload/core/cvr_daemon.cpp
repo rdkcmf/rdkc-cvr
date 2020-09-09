@@ -138,8 +138,6 @@ CVR::CVR(): init_flag(0),
 	hwtimer_fd(-1),
 	//local_stream_err(0),
 	file_len(CVR_CLIP_DURATION),
-	file_num(CVR_CLIP_NUMBER),
-	file_format(CLOUD_RECORDER_VIDEO_TYPE_TS),
 	m_streamid(DEF_CVR_CHANNEL),
 	has_an_iframe(0),
 	target_duration(0),
@@ -351,30 +349,18 @@ void CVR::on_message_smt_TN(rtMessageHeader const* hdr, uint8_t const* buff, uin
  */
 void CVR::on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure)
 {
-
-#ifdef XFINITY_SUPPORT
-        static CloudRecorderConf CloudRecorderInfo;
-#else
-        static RdkCCloudRecorderConf CloudRecorderInfo;
-#endif
-
-	if ( reload_cvr_config ) {
-#ifdef XFINITY_SUPPORT
-        	memset(&CloudRecorderInfo, 0, sizeof(CloudRecorderConf));
-		if ( ReadCloudRecorderInfo(&CloudRecorderInfo) ) {
-#else
-        	memset(&CloudRecorderInfo, 0, sizeof(RdkCCloudRecorderConf));
-		if ( RdkCReadCloudRecorderSection(&CloudRecorderInfo) ) {
-#endif
+        static cvr_provision_info_t CloudRecorderInfo;
+   	if ( reload_cvr_config ) {
+        	memset(&CloudRecorderInfo, 0, sizeof(cvr_provision_info_t));
+		if ( readCloudRecorderConfig(&CloudRecorderInfo) ) {
 			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Reload cloud recorder configuration error!\n", __FILE__, __LINE__);
 		}
 		reload_cvr_config = 0;
 	}
+    	int iscvrenabled = atoi(CloudRecorderInfo.enable);
 
 	// No need to process the analytics message if cvr is disabled or stream error
-	if ( (CloudRecorderInfo.enable == 0) || 
-             (local_stream_err == 1) ) {
-	
+	if ( (iscvrenabled == 0) || (local_stream_err == 1) ) {
 		return;
 	}
 	
@@ -956,28 +942,20 @@ int CVR::get_audio_stream_id(int audio_index)
 }
 
 /** @description: read configuration
- *  @param[in] pCloudRecorderInfo : CloudRecorderConf pointer OR RdkCCloudRecorderConf pointer
+ *  @param[in] pCloudRecorderInfo : cvr_provision_info_t pointer
  *  @return: int
  */
-#ifdef XFINITY_SUPPORT
-int CVR::cvr_read_config(CloudRecorderConf *pCloudRecorderInfo)
+int CVR::cvr_read_config(cvr_provision_info_t *pCloudRecorderInfo)
 {
         // Read cloud recorder server info
-        memset(pCloudRecorderInfo, 0, sizeof(CloudRecorderConf));
-        if (ReadCloudRecorderInfo(pCloudRecorderInfo))
-#else
-int CVR::cvr_read_config(RdkCCloudRecorderConf *pCloudRecorderInfo)
-{
-        // Read cloud recorder server info
-        memset(pCloudRecorderInfo, 0, sizeof(RdkCCloudRecorderConf));
-        if (RdkCReadCloudRecorderSection(pCloudRecorderInfo))
-#endif
+        memset(pCloudRecorderInfo, 0, sizeof(cvr_provision_info_t));
+        if(readCloudRecorderConfig(pCloudRecorderInfo))
         {
                 RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read cloud recorder configuration error!\n", __FILE__, __LINE__);
                 return -1;
-        }
+	}
+    
         return 0;
-
 }
 
 /** @description: enable cvr audio
@@ -1299,12 +1277,13 @@ void CVR::setCVRStreamId(int streamid)
 
 /** @description: initialize cvr
  *  @param[in] argv - char pointer
- *  @param[in] pCloudRecorderInfo - CloudRecorderConf pointer
+ *  @param[in] pCloudRecorderInfo - cvr_provision_info_t pointer
  *  @return: CVR_Failure is failed , CVR_SUCCESS if success
  */
-int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
+int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo)
 {
 	int rdkc_ret = 1;
+        int iscvrenabled = 0;
 
 	if (RDKC_FAILURE == polling_config_init()) {
                 RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVRPOLL","%s(%d): Error initializing polling config\n", __FILE__, __LINE__);
@@ -1412,11 +1391,12 @@ int CVR::cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo)
         rdkc_ret = cvr_read_config(pCloudRecorderInfo);
 	if (0 == rdkc_ret)
 	{
-		RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is successful, enable=%d!\n", __LINE__, pCloudRecorderInfo->enable);
+                iscvrenabled = atoi(pCloudRecorderInfo->enable);
+		RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
 	}
 	else
 	{
-		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, pCloudRecorderInfo->enable);
+		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
 	}
 
 	/* initialise cvr upload */
@@ -1728,14 +1708,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     unsigned long cliplength_ms = 0;
     pthread_t thread_id;
     int ret_videoStreamConfig = -1;
-#ifdef XFINITY_SUPPORT
-    CloudRecorderConf *CloudRecorderInfo  = (CloudRecorderConf*)pCloudRecorderInfo ;
-#else
-    RdkCCloudRecorderConf *CloudRecorderInfo = (RdkCCloudRecorderConf*)pCloudRecorderInfo;
-#endif
+    cvr_provision_info_t *CloudRecorderInfo  = (cvr_provision_info_t*)pCloudRecorderInfo ;
+    int iscvrenabled = atoi(CloudRecorderInfo->enable);
+    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
+
     while (!term_flag)
     {
-
         /* reset all motion level(no motion, low motion, medium motion, high motion) counters */
         count_no = 0;
         count_low = 0;
@@ -1755,11 +1733,13 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             rdkc_ret = cvr_read_config(CloudRecorderInfo);
             if (0 == rdkc_ret)
             {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                iscvrenabled = atoi(CloudRecorderInfo->enable);
+                file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
             }
             else
             {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__,iscvrenabled);
             }
             reload_cvr_flag = 0;
         }
@@ -1811,7 +1791,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         cvr_check_audio();
 
         // CVR not enabled
-        if (CloudRecorderInfo->enable == 0)
+        if (iscvrenabled == 0)
         {
             if (init_flag)
             {
@@ -2062,8 +2042,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         }
 
         clipStatus = CVR_CLIP_GEN_START;
-        file_len = CloudRecorderInfo->video_duration;
-        file_format = CloudRecorderInfo->video_format;
         frame_num_count = 0;
         motion_level_raw_sum = 0.0;
         event_type_raw = 0;
@@ -2122,22 +2100,25 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 rdkc_ret = cvr_read_config(CloudRecorderInfo);
                 if (0 == rdkc_ret)
                 {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                    iscvrenabled = atoi(CloudRecorderInfo->enable);
+                    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR conf read value duration: %d.\n", __FILE__, __LINE__,file_len);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
                 }
                 else
                 {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
                 }
                 reload_cvr_flag = 0;
             }
             // CVR disabled
-            if (CloudRecorderInfo->enable == 0)
+            if (iscvrenabled == 0)
             {
                 RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
                 break;
             }
-            file_len = CloudRecorderInfo->video_duration;
-            if(cvr_flag & RDKC_STREAM_FLAG_VIDEO )
+
+            if( cvr_flag & RDKC_STREAM_FLAG_VIDEO )
             {
 #ifdef _HAS_XSTREAM_
                 ccode = objConsumer.ReadFrame( m_streamid, FORMAT_H264, cvr_frame );
@@ -2567,11 +2548,10 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     unsigned short totalFramesinClip = 0;
     int ret_videoStreamConfig = -1;
 
-#ifdef XFINITY_SUPPORT
-    CloudRecorderConf *CloudRecorderInfo  = (CloudRecorderConf*)pCloudRecorderInfo ;
-#else
-    RdkCCloudRecorderConf *CloudRecorderInfo = (RdkCCloudRecorderConf*)pCloudRecorderInfo;
-#endif
+    cvr_provision_info_t *CloudRecorderInfo  = (cvr_provision_info_t*)pCloudRecorderInfo ;
+    int iscvrenabled = atoi(CloudRecorderInfo->enable);
+    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
+
     while (!term_flag)
     {
         /* reset all motion level(no motion, low motion, medium motion, high motion) counters */
@@ -2593,11 +2573,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             rdkc_ret = cvr_read_config(CloudRecorderInfo);
             if (0 == rdkc_ret)
             {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                iscvrenabled = atoi(CloudRecorderInfo->enable);
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
             }
             else
             {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
             }
             reload_cvr_flag = 0;
         }
@@ -2766,8 +2747,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         }
 
         clipStatus = CVR_CLIP_GEN_START;
-        file_len = CloudRecorderInfo->video_duration;
-        file_format = CloudRecorderInfo->video_format;
+
         frame_num_count = 0;
         motion_level_raw_sum = 0.0;
         event_type_raw = 0;
@@ -2814,21 +2794,23 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 rdkc_ret = cvr_read_config(CloudRecorderInfo);
                 if (0 == rdkc_ret)
                 {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                    iscvrenabled = atoi(CloudRecorderInfo->enable);
+                    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR conf read value duration 2799: %d.\n", __FILE__, __LINE__,file_len);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
                 }
                 else
                 {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, CloudRecorderInfo->enable);
+                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
                 }
                 reload_cvr_flag = 0;
             }
             // CVR disabled
-            if (CloudRecorderInfo->enable == 0)
+            if (iscvrenabled == 0)
             {
                 RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
                 break;
             }
-            file_len = CloudRecorderInfo->video_duration;
 
             ccode = objConsumer.ReadFrame( m_streamid, FORMAT_H264, cvr_frame );
 
@@ -3174,22 +3156,12 @@ void CVR::reload_config(int dummy)
  */
 int main(int argc, char *argv[])
 {
-
-#ifdef XFINITY_SUPPORT
-        CloudRecorderConf CloudRecorderInfo;
-#else
-        RdkCCloudRecorderConf CloudRecorderInfo;
-#endif
+        cvr_provision_info_t CloudRecorderInfo;
 
         rdk_logger_init("/etc/debug.ini");
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s start ...\n", __FILE__);
 
-
-#ifdef XFINITY_SUPPORT
-        memset(&CloudRecorderInfo, 0, sizeof(CloudRecorderConf));
-#else
-        memset(&CloudRecorderInfo, 0, sizeof(RdkCCloudRecorderConf));
-#endif
+        memset(&CloudRecorderInfo, 0, sizeof(cvr_provision_info_t));
 
         // Init signal handler
         (void) signal(SIGTERM, CVR::self_term);

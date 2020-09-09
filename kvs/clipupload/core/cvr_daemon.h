@@ -59,11 +59,6 @@ extern "C"
 {
 #endif
 
-#ifndef XFINITY_SUPPORT
-#include "rdkc_config_sections.h"
-#endif
-
-//#include "video_analysis.h" //vai_result_t
 #include "polling_config.h"
 #include "event_config.h"   //EventType
 #include "AUD_conf.h"	//AUD_Conf
@@ -196,12 +191,9 @@ class CVR {
       int cvr_daemon_check_filelock(char *fname);
       int get_audio_stream_id(int audio_index);
 
-#ifdef XFINITY_SUPPORT
       All_Conf *g_pconf;
-      int cvr_read_config(CloudRecorderConf *pCloudRecorderInfo);
-#else
-      int cvr_read_config(RdkCCloudRecorderConf *pCloudRecorderInfo);
-#endif
+      int cvr_read_config(cvr_provision_info_t *pCloudRecorderInfo);
+
       int cvr_enable_audio(bool val);
       void cvr_check_audio();
 
@@ -246,8 +238,6 @@ class CVR {
       RDKC_FrameInfo cvr_frame;
       RDKC_FrameInfo cvr_key_frame;
       int file_len;       //duration of each file seconds
-      int file_num; //number of files in m3u8 file
-      int file_format; // file format : TS, MP4
       int has_an_iframe;
       int target_duration;
       unsigned int sequence;
@@ -320,7 +310,7 @@ class CVR {
     public:
       CVR();
       ~CVR();
-      int cvr_init(int argc, char **argv,CloudRecorderConf *pCloudRecorderInfo);
+      int cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo);
       void do_cvr(void * pCloudRecorderInfo);
       int cvr_close(char *argv[]);
       static volatile sig_atomic_t term_flag;

@@ -17,8 +17,6 @@
 # limitations under the License.
 ##########################################################################
 
-XFINITY_SUPPORT := yes
-
 # Add dependent libraries
 USE_CONFIGMGR = yes
 USE_RFCCONFIG = yes
@@ -64,10 +62,6 @@ endif
 
 ifeq ($(XCAM_MODEL), SCHC2)
 CFLAGS +=-DXCAM2
-endif
-
-ifeq ($(XFINITY_SUPPORT), yes)
-CFLAGS +=-DXFINITY_SUPPORT
 endif
 
 #GST_CVR
