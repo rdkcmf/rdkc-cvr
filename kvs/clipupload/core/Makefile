@@ -17,8 +17,6 @@
 # limitations under the License.
 ##########################################################################
 
-XFINITY_SUPPORT := yes
-
 # Add dependent libraries
 USE_CONFIGMGR = yes
 USE_RFCCONFIG = yes
@@ -45,10 +43,6 @@ CFLAGS  += -fpermissive
 LIBS    += -L$(RDK_PROJECT_ROOT_PATH)/cvr/kvs/upload -lcvrupload_kvs
 ifeq ($(XCAM_MODEL), SCHC2)
 CFLAGS +=-DXCAM2
-endif
-
-ifeq ($(XFINITY_SUPPORT), yes)
-CFLAGS +=-DXFINITY_SUPPORT
 endif
 
 #GST_CVR
