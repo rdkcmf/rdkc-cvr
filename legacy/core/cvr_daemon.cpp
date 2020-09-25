@@ -33,6 +33,7 @@ extern "C"{
 #define CVR_RESOLUTION 		"resolution"
 #endif
 
+#if !defined ( CVR_PLATFORM_RPI )
 int CVR::cvr_audio_status = CVR_AUDIO_UNKNOWN;
 vai_result_t CVR::vai_result_recved_rtmsg;
 vai_result_t CVR::vai_result_recved;
@@ -2054,6 +2055,7 @@ void CVR::reload_config(int dummy)
         CVR::reload_cvr_flag = 1;
         CVR::reload_cvr_config = 1;
 }
+#endif
 
 /** @description: main
  *  @return: int
@@ -2061,6 +2063,7 @@ void CVR::reload_config(int dummy)
 int main(int argc, char *argv[])
 {
 
+#if !defined ( CVR_PLATFORM_RPI )
 #ifdef XFINITY_SUPPORT
         CloudRecorderConf CloudRecorderInfo;
 #else
@@ -2101,5 +2104,7 @@ int main(int argc, char *argv[])
 error_exit:
 	cvr_object.cvr_close(argv[0]);
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s exit! - sigterm flag - %d \n", __FILE__, __LINE__, *argv,CVR::term_flag);
+#endif
+
 	return 0;
 }

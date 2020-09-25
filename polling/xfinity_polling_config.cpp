@@ -26,10 +26,16 @@ extern  "C"
 }
 
 #include<iostream>
+
+#if defined ( CVR_PLATFORM_RPI )
+#include "sysUtils.h"
+#endif
+
 using namespace std;
 
 #define LOCK_FILENAME_XPC		"/tmp/xfinity_polling_config.lock"
 
+#if !defined ( CVR_PLATFORM_RPI )
 volatile sig_atomic_t XfinityPollingConfig::term_flag = 0 ;
 volatile sig_atomic_t XfinityPollingConfig::forced_polling = 0 ;
 double XfinityPollingConfig::waitingInterval = DEFAULT_MIN_INTERVAL ;
@@ -2851,7 +2857,12 @@ void XfinityPollingConfig::XPC_wait_polling_interval(RdkCCloudRecorderConf Cloud
 {
         time_t current_time = 0;
 
+#if defined ( CVR_PLATFORM_RPI )
+	current_time = getCurrentTime(NULL);
+#else
 	current_time = sc_linear_time(NULL);
+#endif
+
         if (CloudRecorderInfo.polling_interval + start_polling_time > current_time)
         {
         	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): Polling interval is %d. Need sleep %d seconds to do next polling.\n", __FILE__, __LINE__, CloudRecorderInfo.polling_interval, (CloudRecorderInfo.polling_interval + start_polling_time - current_time));
@@ -3066,7 +3077,11 @@ void XfinityPollingConfig::XPC_do_polling()
 	char *receiveData = NULL;
 	int error_count = 0;
 
+#if defined ( CVR_PLATFORM_RPI )
+       RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): Xfinity polling config process start at %lu!\n", __FILE__, __LINE__, getCurrentTime(NULL));
+#else
 	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): Xfinity polling config process start at %lu!\n", __FILE__, __LINE__, sc_linear_time(NULL));
+#endif
 
         // Read cloud recorder server info firstly
 #ifdef XFINITY_SUPPORT
@@ -3100,7 +3115,11 @@ void XfinityPollingConfig::XPC_do_polling()
 		XPC_append_mac_to_url(polling_server_url, sizeof(polling_server_url), url_tmp);
                 XPC_append_mac_to_url(recovery_polling_server_url, sizeof(recovery_polling_server_url), DEFAULT_POLLING_URL);    
 
+#if defined ( CVR_PLATFORM_RPI )
+		current_time = getCurrentTime(NULL);
+#else
 		current_time = sc_linear_time(NULL);
+#endif
 		if ((!forced_polling) && (start_polling_time != 0) && (CloudRecorderInfo.polling_interval  + start_polling_time > current_time))
                 {
                         RDK_LOG(RDK_LOG_WARN,"LOG.RDK.CVRPOLL","%s(%d): Need wait enough time to polling next config.\n", __FILE__, __LINE__);
@@ -3118,7 +3137,11 @@ void XfinityPollingConfig::XPC_do_polling()
 
 		/* recv response from server using curl */
 		RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): Receiving content from server using curl \n", __FUNCTION__, __LINE__);
+#if defined ( CVR_PLATFORM_RPI )
+                start_polling_time = getCurrentTime(NULL);
+#else
 		start_polling_time = sc_linear_time(NULL);
+#endif
 
 		while((waitingInterval < CloudRecorderInfo.polling_interval) && (!XPC_get_term_flag()))
 		{
@@ -3273,8 +3296,11 @@ void XfinityPollingConfig::XPC_exit()
         unlink(LOCK_FILENAME_XPC);
         RDK_LOG(RDK_LOG_WARN,"LOG.RDK.CVRPOLL","%s(%d): xfinity_polling_config exit.\n", __FILE__, __LINE__);
 }
+#endif
 
 int main(int argc, char *argv[]) {
+
+#if !defined ( CVR_PLATFORM_RPI )
 
         /* ENABLING RDK LOGGER */
         rdk_logger_init("/etc/debug.ini");
@@ -3288,7 +3314,13 @@ int main(int argc, char *argv[]) {
 			return 0;
 		}
 	}
+
+#if defined ( CVR_PLATFORM_RPI )
+	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): Xfinity polling config process start sleep at %lu!\n", __FILE__, __LINE__, getCurrentTime(NULL));
+#else
 	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRPOLL","%s(%d): Xfinity polling config process start sleep at %lu!\n", __FILE__, __LINE__, sc_linear_time(NULL));
+#endif
+
 	if (argc > 1)
 	{
 		// Wait for a period time get from parameter
@@ -3312,6 +3344,7 @@ int main(int argc, char *argv[]) {
 		xpc = NULL;
 	}
 
+#endif
 	return 0;
 
 }

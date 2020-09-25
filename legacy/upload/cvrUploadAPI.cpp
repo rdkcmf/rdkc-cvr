@@ -141,12 +141,16 @@ static void * CvrUploadThread(void* args)
                 //Uploading  data to the server.
                 ret = upload_cvr_clips(upload_params.fpath, upload_params.starttime, upload_params.endtime, upload_params.event_type, upload_params.event_datetime, upload_params.m_fpath, upload_params.motion_level_idx, upload_params.str_od_data, upload_params.va_engine_version, upload_params.smartTnEnabled);
                 if (RDKC_SUCCESS == ret) {
+
+#if defined ( EVENT_TYPE_MOTION )
 			if( upload_params.event_type == EVENT_TYPE_MOTION) {
 				RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): Upload Successful with Motion\n", __FUNCTION__, __LINE__);
 			}
 			else {
 				RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): Upload Successful without Motion\n", __FUNCTION__, __LINE__);
 			}
+#endif
+
                         uploadfailcount = 0; //reset upon success
                 }
                 else {
