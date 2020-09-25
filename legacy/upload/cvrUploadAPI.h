@@ -25,7 +25,9 @@
 extern "C" {
 #endif
 
+#if !defined ( CVR_PLATFORM_RPI )
 #include "system_config.h"
+#endif
 
 	/* initialise cvr upload */
         int cvr_upload_init();
