@@ -84,6 +84,7 @@ CVRUpload::CVRUpload(): isInitialized(false), upload_file_name(NULL),m_level_pat
         unsigned char macaddr[MAC_ADDR_LEN];
         memset(macaddr, 0, sizeof(macaddr));
 
+#if !defined ( CVR_PLATFORM_RPI )
         if (0 == get_mac_address(macaddr)) {
         memset(mac_string, 0, sizeof(mac_string));
         transcode_mac_to_string_by_separator(macaddr, '\0', mac_string, XFINITY_MAC_STRING_LEN + 1, 0);
@@ -92,6 +93,7 @@ CVRUpload::CVRUpload(): isInitialized(false), upload_file_name(NULL),m_level_pat
           RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera mac\n", __FILE__, __LINE__);
           strcpy(mac_string,"No MACADDR");
         }
+#endif
 
 }
 
@@ -396,7 +398,12 @@ int CVRUpload::postFileToCVRServer(char *file_path, int start_upload_time, int f
 		memset(read_buf,0,CVR_UPLOAD_SEND_LEN);
 	}
 
+#if defined ( CVR_PLATFORM_RPI )
+        current_time = getCurrentTime(NULL);
+#else
 	current_time = sc_linear_time(NULL);
+#endif
+
 	if (CVR_UPLOAD_TIMEOUT_INTERVAL + start_upload_time <= current_time)
 	{
 		ret = CVR_UPLOAD_TIMEOUT;
@@ -580,7 +587,11 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		timeout = cvr_serv_conf->timeout;
 	}
 
+#if defined ( CVR_PLATFORM_RPI )
+        start_upload_time = getCurrentTime(NULL);
+#else
 	start_upload_time = sc_linear_time(NULL);
+#endif
 
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s: Post file %s to %s, len=%d!\n", __FILE__, cvr_serv_conf->file_name, cvr_serv_conf->url, file_len);
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s: Posting cvr clip with size:%d\n", __FILE__,file_len);
@@ -588,7 +599,12 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 	while (!term_flag)
 	{
 		// Start time
+#if defined ( CVR_PLATFORM_RPI )
+		current_time = getCurrentTime(NULL);
+#else
 		current_time = sc_linear_time(NULL);
+#endif
+
 		if (timeout + start_upload_time <= current_time)
 		{
 			ret = CVR_UPLOAD_TIMEOUT;
@@ -623,7 +639,11 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		if (sscanf(starttime, "%d.%d", &tv.tv_sec, &tv.tv_usec) == 2)
 		{
 			tv.tv_usec = tv.tv_usec/1000; //convert to micro seconds
+
+#if !defined ( CVR_PLATFORM_RPI )
 			get_time_special_string_in(date_string, sizeof(date_string), &tv, NULL, TIME_FORMAT_ISO8601, 0);
+#endif
+
 			httpClient->addHeader(CVR_UPLOAD_CAPTURE_TIME_TAG, date_string);
 			RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): %s is [%s].\n", __FILE__, __LINE__, CVR_UPLOAD_CAPTURE_TIME_TAG, date_string);
 		}
@@ -634,7 +654,11 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		if (sscanf(endtime, "%d.%d", &end_tv.tv_sec, &end_tv.tv_usec) == 2)
 		{
 			end_tv.tv_usec = end_tv.tv_usec/1000; // covert to micro seconds
+
+#if !defined ( CVR_PLATFORM_RPI )
 			get_time_special_string_in(date_string, sizeof(date_string), &end_tv, NULL, TIME_FORMAT_ISO8601, 0);
+#endif
+
 			httpClient->addHeader(CVR_UPLOAD_CAPTURE_END_TAG, date_string);
 			 RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): %s is [%s].\n", __FILE__, __LINE__, CVR_UPLOAD_CAPTURE_END_TAG, date_string);
 		}
@@ -664,6 +688,8 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 			memset(auth, 0, sizeof(auth));
 			memset(base64_auth, 0, sizeof(base64_auth));
 			snprintf(auth,sizeof(auth), "%s:%s", cvr_serv_conf->user, cvr_serv_conf->pass);
+
+#if !defined ( CVR_PLATFORM_RPI )
 			ret = base64encode(auth, strlen(auth), base64_auth, sizeof(base64_auth), NULL);
 			if (ret < 0)
 			{
@@ -676,6 +702,7 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 				snprintf(pack_head, sizeof(pack_head), "Basic %s", base64_auth);
 				httpClient->addHeader( "Authorization", pack_head);
 			}
+#endif
 		}
 		//memset(fw_ver, 0, sizeof(fw_ver));
 
@@ -703,7 +730,9 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
                 snprintf(pack_head, sizeof(pack_head), "Sercomm %s %s %s", modelName, fw_ver, mac_string);
 
 #else
+#if !defined ( CVR_PLATFORM_RPI )
 		snprintf(pack_head, sizeof(pack_head), "Sercomm %s %s %s", SC_MODEL_NAME, fw_name, mac_string);
+#endif
 #endif
 		httpClient->addHeader( "User-Agent", pack_head);
 
@@ -713,6 +742,7 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		stringifyEventDateTime(event_datetime_string, sizeof(event_datetime_string), eventDatetime);
 		switch (event_type)
 		{
+#if !defined ( CVR_PLATFORM_RPI )
 			case EVENT_TYPE_MOTION:
 				httpClient->addHeader(CVR_UPLOAD_EVENT_TYPE_TAG, XFINITY_EVENT_STR_MOTION);
 				httpClient->addHeader(CVR_UPLOAD_EVENT_DATETIME_TAG,event_datetime_string);
@@ -732,6 +762,8 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
                                 }
 
 				break;
+#endif
+
 #ifdef _SUPPORT_OBJECT_DETECTION_
 			case EVENT_TYPE_PEOPLE:
 				httpClient->addHeader(CVR_UPLOAD_EVENT_TYPE_TAG, XFINITY_EVENT_STR_HUMAN);
@@ -754,10 +786,13 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 				break;
 		}
 		memset(request_uuid, 0, sizeof(request_uuid));
+
+#if !defined ( CVR_PLATFORM_RPI )
 		if (0 == GenarateXfinityRequestUUID(request_uuid, sizeof(request_uuid), XFINITY_REQUEST_VIDEO_UPLOAD))
 		{
 			httpClient->addHeader(XFINITY_REQUEST_UUID, request_uuid);
 		}
+#endif
 		//Add X-MOTION-LEVELE
 		length_m_level_data = motion_level_idx; //get motion statistics info length
 		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): m_level_path = %s, m_level_data_length = %d\n", __FILE__, __LINE__,m_level_path,length_m_level_data);
@@ -778,11 +813,13 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 					m_level_ptr += sprintf(m_level_ptr,"%u ",m_level_data[motion_level_counter]);
 				}
 
+#if !defined ( CVR_PLATFORM_RPI )
 				ret = base64encode(m_level_data, count_read, base64_m_level_data, sizeof(base64_m_level_data), NULL);
 				if ((length_m_level_data == count_read) && (ret > 0))
 				{
 					httpClient->addHeader( CVR_UPLOAD_MOTION_LEVEL_TAG, base64_m_level_data);
 				}
+#endif
 			}
 			else
 			{
@@ -805,7 +842,12 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 
 		httpClient->addHeader( "Connection" ,"close");
 
+#if defined ( CVR_PLATFORM_RPI )
+		current_time = getCurrentTime(NULL);
+#else
 		current_time = sc_linear_time(NULL);
+#endif
+
 		if (CVR_UPLOAD_TIMEOUT_INTERVAL + start_upload_time <= current_time)
 		{
 			ret = CVR_UPLOAD_TIMEOUT;
@@ -842,7 +884,11 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		{
 			RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): Failed to send file to server,Response code=%ld\n",__FILE__, __LINE__, response_code);
 
+#if defined ( CVR_PLATFORM_RPI )
+                	current_time = getCurrentTime(NULL);
+#else
 			current_time = sc_linear_time(NULL);
+#endif
 			if (waitingInterval > ((CVR_UPLOAD_TIMEOUT_INTERVAL + start_upload_time ) - current_time))
 			{
 				RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Failed to send file to server exceeded the time with Response code=%ld.\n",__FILE__, __LINE__,response_code);
@@ -870,7 +916,12 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 
 		if(!ret)
 		{
+#if defined ( CVR_PLATFORM_RPI )
+                        current_time = getCurrentTime(NULL);
+#else
 			current_time = sc_linear_time(NULL);
+#endif
+
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) Data has been sent %s and cvr time:%d secs\n",__FILE__, __LINE__, cvr_serv_conf->file_name, (current_time - start_upload_time)			);
 			notify_smt_TN(CVR_UPLOAD_OK, p_file_name);
 			ret = CVR_UPLOAD_OK;

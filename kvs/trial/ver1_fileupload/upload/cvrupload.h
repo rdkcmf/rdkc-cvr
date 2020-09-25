@@ -51,6 +51,10 @@ extern "C" {
 #include "rdkc_config_sections.h"
 #endif
 
+#if defined ( CVR_PLATFORM_RPI )
+#include "sysUtils.h"
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -44,7 +44,11 @@
 #include <list>
 #include <thread>
 #include "RFCCommon.h"
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "cvrUploadAPI.h"
+#endif
+
 #include "RdkCVideoCapturer.h"
 #include "RdkCPluginFactory.h"
 
@@ -64,11 +68,15 @@ extern "C"
 #endif
 
 //#include "video_analysis.h" //vai_result_t
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "event_config.h"   //EventType
 #include "AUD_conf.h"	//AUD_Conf
 #include "main.h"   //ReadAllConf
 #include "iav_ioctl.h" //IAV_PIC_TYPE_I_FRAME
 #include "cgi_image.h"	//set_audio_mic_enable_2
+#endif
+
 #include "rdk_debug.h"
 #include "dev_config.h"
 #ifdef __cplusplus
@@ -133,6 +141,7 @@ extern "C"
 
 #define OPTIMIZED_VIDEO_PROFILE_FILE      "/opt/usr_config/OptimizedVideoProfile_Enable.txt"
 
+#if !defined ( CVR_PLATFORM_RPI )
 /* Enable run time debug logging */
 static int enable_debug = 0;
 #define RDK_LOG_DEBUG1 (enable_debug ? (RDK_LOG_INFO) : (RDK_LOG_DEBUG))
@@ -325,4 +334,5 @@ class CVR {
       void setCVRStreamId(int streamid);
       int getCVRStreamId();
 };
+#endif
 #endif

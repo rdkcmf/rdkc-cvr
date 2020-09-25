@@ -40,13 +40,15 @@
 extern "C" {
 #endif
 #include "dev_config.h"
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "sc_def_value.h"
 #include "main.h"
 #include "ls_ctrl.h"
 #include "cgi_image.h"
 #include "cgi_lan.h"
 #include "cgi_event.h"
-
+#endif
 
 #ifndef XFINITY_SUPPORT
 #include "rdkc_config_sections.h"
@@ -57,6 +59,11 @@ extern "C" {
 
 #ifdef __cplusplus
 }
+#endif
+
+#if defined ( CVR_PLATFORM_RPI )
+#define CGI_ERR_MSG_SIZE_MAX            512
+#define  XFINITY_AUTH_LEN               1024 
 #endif
 
 #define DEFAULT_POLLING_URL   "https://config-cvr.g.xfinityhome.com/config"
@@ -177,6 +184,7 @@ private:
 #endif
 	char *XPC_parse_response(char *buff);
 	long XPC_parse_period_time_iso8601(char *period_time);
+#if !defined ( CVR_PLATFORM_RPI )
 	int XPC_parse_config_attr(All_Conf *pconf, xmlNodePtr tag);
 	int XPC_apply_config();
 	static int XPC_read_polling_seq();
@@ -203,6 +211,7 @@ private:
 	int XPC_parse_events_tamper_attr(All_Conf *pconf, xmlNodePtr tag, int *enabled);
 	int XPC_parse_threshold_attr(All_Conf *pconf, xmlNodePtr tag);
 	int XPC_parse_firmware_attr(All_Conf *pconf, xmlNodePtr tag);
+#endif
 	void getCloudRecorderRetryAttribute();
 	void retryAtExpRate();
 	void freeResource(char *receiveData);

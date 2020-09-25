@@ -21,7 +21,10 @@
 #ifndef _CVR_UPLOAD_H_
 #define _CVR_UPLOAD_H_
 
+#if !defined ( CVR_PLATFORM_RPI )
 #include "conf_sec.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,6 +37,8 @@
 extern "C" {
 #endif
 #include "dev_config.h"
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "sc_md5.h"
 #include "sc_tool.h"
 #include "SYS_log.h"
@@ -42,6 +47,8 @@ extern "C" {
 #include "base64ed.h"
 #include "reset_to_default.h"
 #include "sc_debug.h"
+#endif
+
 #include "rdk_debug.h"
 #ifdef USE_MFRLIB
 #include "mfrApi.h"
@@ -55,8 +62,25 @@ extern "C" {
 #include "rtLog.h"
 #include "rtMessage.h"
 
+#if defined ( CVR_PLATFORM_RPI )
+#include "signal.h"
+#include <fcntl.h>
+#include "sysUtils.h"
+#endif
+
 #ifdef __cplusplus
 }
+#endif
+
+#if defined ( CVR_PLATFORM_RPI )
+typedef int sig_atomic_t;
+
+#define XFINITY_MAC_STRING_LEN 15
+#define MAC_ADDR_LEN    6
+#define  XFINITY_REQUEST_UUID_LEN       128
+#define  XFINITY_FW_VERSION_LEN         64
+#define XFINITY_RETRY                   "X-Retry"
+#define XFINITY_EVENT_STR_MOTION        "motion"
 #endif
 
 #define CVR_USER_LEN                            128

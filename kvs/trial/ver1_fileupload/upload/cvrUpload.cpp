@@ -391,7 +391,12 @@ int CVRUpload::postFileToCVRServer(char *file_path, int start_upload_time, int f
 		memset(read_buf,0,CVR_UPLOAD_SEND_LEN);
 	}
 
+#if defined ( CVR_PLATFORM_RPI )
+        current_time = getCurrentTime(NULL);
+#else
 	current_time = sc_linear_time(NULL);
+#endif
+
 	if (CVR_UPLOAD_TIMEOUT_INTERVAL + start_upload_time <= current_time)
 	{
 		ret = CVR_UPLOAD_TIMEOUT;
@@ -550,7 +555,11 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		timeout = cvr_serv_conf->timeout;
 	}
 
+#if defined ( CVR_PLATFORM_RPI )
+        current_time = getCurrentTime(NULL);
+#else
 	start_upload_time = sc_linear_time(NULL);
+#endif
 
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s: Post file %s to %s, len=%d!\n", __FILE__, cvr_serv_conf->file_name, cvr_serv_conf->url, file_len);
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s: Posting cvr clip with size:%d\n", __FILE__,file_len);
@@ -558,7 +567,12 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 	while (!term_flag)
 	{
 		// Start time
+#if defined ( CVR_PLATFORM_RPI )
+		current_time = getCurrentTime(NULL);
+#else
 		current_time = sc_linear_time(NULL);
+#endif
+
 		if (timeout + start_upload_time <= current_time)
 		{
 			ret = CVR_UPLOAD_TIMEOUT;
@@ -775,7 +789,12 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 
 		httpClient->addHeader( "Connection" ,"close");
 
+#if defined ( CVR_PLATFORM_RPI )
+		current_time = getCurrentTime(NULL);
+#else
 		current_time = sc_linear_time(NULL);
+#endif
+
 		if (CVR_UPLOAD_TIMEOUT_INTERVAL + start_upload_time <= current_time)
 		{
 			ret = CVR_UPLOAD_TIMEOUT;
@@ -806,7 +825,11 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 		{
 			RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): Failed to send file to server,Response code=%ld\n",__FILE__, __LINE__, response_code);
 
+#if defined ( CVR_PLATFORM_RPI )
+			current_time = getCurrentTime(NULL);
+#else
 			current_time = sc_linear_time(NULL);
+#endif
 			if (waitingInterval > ((CVR_UPLOAD_TIMEOUT_INTERVAL + start_upload_time ) - current_time))
 			{
 				RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): Failed to send file to server exceeded the time with Response code=%ld.\n",__FILE__, __LINE__,response_code);
@@ -832,7 +855,12 @@ int CVRUpload::doCVRUpload(char *fpath, char *stime, char *etime, int eventType,
 
 		if(!ret)
 		{
+#if defined ( CVR_PLATFORM_RPI )
+			current_time = getCurrentTime(NULL);
+#else
 			current_time = sc_linear_time(NULL);
+#endif
+
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) Data has been sent %s and cvr time:%d secs\n",__FILE__, __LINE__, cvr_serv_conf->file_name, (current_time - start_upload_time)			);
 			ret = CVR_UPLOAD_OK;
 			break;
