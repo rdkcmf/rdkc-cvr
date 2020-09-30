@@ -28,6 +28,8 @@
 extern "C"{
  #include "streamUtils.h"
 }
+
+#include <inttypes.h>
 #define CVR_RESOLUTION_CONF     "/opt/usr_config/cvr.conf"
 #define CVR_RESOLUTION                 "resolution"
 #endif
@@ -152,6 +154,7 @@ CVR::CVR(): init_flag(0),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
 	kvsclip_highmem(0),
+	m_storageMem(0),
 	count_motion_mismatch(0)
 {
 #ifdef RTMSG
@@ -1302,6 +1305,13 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
 
         kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
         kvsclip_highmem = atoi(argv[2]);    /* highmem flag */
+#ifdef XCAM2 
+        if (argc == 4)
+        {
+                m_storageMem = atoi(argv[3]); /*storage space*/
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): storageMem Allocated to : %" PRIu64 "\n", __FILE__, __LINE__, m_storageMem);
+        }
+#endif
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
 
         // Init cvr flag
@@ -1371,6 +1381,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
         rtConnection_Create(&connectionRecv, "CVR_RECV", "tcp://127.0.0.1:10001");
         rtConnection_AddListener(connectionRecv, "RDKC.CVR", on_message_cvr, NULL);
         rtConnection_AddListener(connectionRecv, "RDKC.SMARTTN.STATUS", on_message_smt_TN, NULL);
+        rtConnection_AddListener(connectionRecv, "RDKC.ENABLE_DYNAMIC_LOG", on_message_dyn_log, connectionRecv);
 
         std::thread rtMessage_recv_thread (receive_rtmessage);
         pthread_setname_np(rtMessage_recv_thread.native_handle(),"rt_recmessage");
@@ -1503,7 +1514,7 @@ bool CVR::pushFrames(RDKC_FrameInfo& frameInfo,
         do
         {
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsInit\n", __FILE__, __LINE__);
-            ret_kvs = kvsInit(this, stream_id);
+            ret_kvs = kvsInit(this, stream_id, m_storageMem);
 
             static int retry = 0;
             if (0 != ret_kvs)

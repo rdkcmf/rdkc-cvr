@@ -356,6 +356,7 @@ class CVR : public kvsUploadCallback
         bool iskvsStreamInitDone;
         std::map<long, EventType> eventMap;
         cvr_clip_status_t clipStatus;
+        uint64_t m_storageMem;
 
         void sort_od_frame_data();
         void pop_od_frame_data(int *top);

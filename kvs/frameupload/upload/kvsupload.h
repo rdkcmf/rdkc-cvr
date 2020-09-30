@@ -23,7 +23,7 @@
 
 #include "kvsuploadCallback.h"
 
-int kvsInit(kvsUploadCallback* callback, int stream_id);
+int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0);
 int kvsStreamInit(unsigned short& audioenabled, unsigned short& kvshighmem, unsigned short& contentchangestatus);
 #ifdef _HAS_XSTREAM_
 int kvsUploadFrames(unsigned short& audioenabled, unsigned short& kvshighmem, frameInfoH264 frameData, char* filename, bool isEOF = false );

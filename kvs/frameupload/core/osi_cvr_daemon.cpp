@@ -24,6 +24,8 @@
 #include "breakpadwrap.h" 
 #endif
 
+#include <inttypes.h>
+
 #ifdef XCAM2
 extern "C"{
    #include "streamUtils.h"
@@ -156,6 +158,7 @@ CVR::CVR(): init_flag(0),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
 	kvsclip_highmem(0),
+	storageMem(0),
 	count_motion_mismatch(0)
 {
 #ifdef RTMSG
@@ -1291,7 +1294,7 @@ void CVR::setCVRStreamId(int streamid)
  *  @param[in] pCloudRecorderInfo - CloudRecorderConf pointer
  *  @return: CVR_Failure is failed , CVR_SUCCESS if success
  */
-int CVR::cvr_init(unsigned short isAudio,unsigned short isHighMem)
+int CVR::cvr_init(unsigned short isAudio,unsigned short isHighMem, uint64_t storageMemory = 0)
 {
 	int rdkc_ret = 1;
 
@@ -1313,6 +1316,7 @@ int CVR::cvr_init(unsigned short isAudio,unsigned short isHighMem)
         //kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
         kvsclip_audio = isAudio;/* audio enable flag */
         kvsclip_highmem = isHighMem;
+        storageMem = storageMemory;
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", 
                                                                 __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
 
@@ -1519,7 +1523,9 @@ bool CVR::pushFrames(RDKC_FrameInfo& frameInfo,
         do
         {
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsInit\n", __FILE__, __LINE__);
-            ret_kvs = kvsInit(this, stream_id);
+            if(storageMem!=0)
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): SDK storageMem Allocated to : %" PRIu64 "\n", __FILE__, __LINE__, storageMem);
+            ret_kvs = kvsInit(this, stream_id, storageMem);
 
             static int retry = 0;
             if (0 != ret_kvs)
@@ -3112,6 +3118,7 @@ int main(int argc, char *argv[])
     (void) signal(SIGUSR1, CVR::reload_config);
     unsigned short kvsclip_audio =0;/* audio enable flag */
     unsigned short useHighMem =0;
+    uint64_t storageMemory=0;
     int streamId = DEF_CVR_CHANNEL;
     while (itr < argc)
     {
@@ -3178,6 +3185,18 @@ int main(int argc, char *argv[])
                 break;
             }
         }
+	if(strcmp(argv[itr],"--sdkMem")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+               storageMemory  = (uint64_t) atoi(argv[itr]);
+            }
+            else
+            {
+                break;
+            }
+        }
 
         itr++;
     }
@@ -3196,7 +3215,7 @@ int main(int argc, char *argv[])
 
         cvr_object.setCVRStreamId(streamId);
 
-	int ret = cvr_object.cvr_init(kvsclip_audio,useHighMem);
+	int ret = cvr_object.cvr_init(kvsclip_audio,useHighMem, storageMemory);
 
 	if(CVR_FAILURE == ret) {
 		goto error_exit;
