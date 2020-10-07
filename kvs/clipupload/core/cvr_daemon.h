@@ -303,7 +303,7 @@ class CVR {
       time_t prev_cvr_event_seconds[EVENT_TYPE_MAX];
       time_t event_quiet_time;
 #endif
-
+      uint64_t m_storageMem;
       void sort_od_frame_data();
       void pop_od_frame_data(int *top);
       int push_od_frame_data(int *top, float *low_bound_motion_score, float curr_motion_score, vai_result_t *vai_res);

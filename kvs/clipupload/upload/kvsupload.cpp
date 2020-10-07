@@ -103,6 +103,7 @@ LOGGER_TAG("com.amazonaws.kinesis.video.gstreamer");
 #define STORAGE_SIZE_STREAM1 (3 * 1024 * 1024)
 #define STORAGE_SIZE_STREAM2 (4 * 1024 * 1024)
 #define DEFAULT_STORAGE_SIZE_STREAM (3 * 1024 * 1024)
+#define MAX_STORAGE_SIZE_STREAM (10 * 1024 * 1024)
 #define DEFAULT_ROTATION_TIME_SECONDS 2400
 #define DEFAULT_VIDEO_TRACKID 1
 #define DEFAULT_FRAME_DURATION_MS 1
@@ -148,6 +149,7 @@ typedef struct _CustomData {
     eos_triggered(false),
     pipeline_blocked(false),
     total_track_count(1),
+    storageMem(0),
     put_frame_failed(false),
     put_frame_flushed(false),
     cvr_stream_id(3)
@@ -219,6 +221,9 @@ typedef struct _CustomData {
 
   //Indicating that the clip has live mode enabled
   unsigned short gkvsclip_livemode;
+
+  //storage space to sdk
+  uint64_t storageMem;
 
   //audio related params
   mutex audio_video_sync_mtx;
@@ -340,7 +345,7 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
 
   device_info_t getDeviceInfo() override {
     auto device_info = DefaultDeviceInfoProvider::getDeviceInfo();
-    LOG_ERROR("SampleDeviceInfoProvider : stream id :" << m_stream_id );
+
     switch (m_stream_id) {
       case 0 :
         device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM1;
@@ -356,9 +361,14 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
         break;
       default:
         device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-	break;
+        break;
     }
-    LOG_ERROR("SampleDeviceInfoProvider : storage size :" << device_info.storageInfo.storageSize );
+
+    if (data.storageMem != 0 && data.storageMem >= STORAGE_SIZE_STREAM2 && data.storageMem <= MAX_STORAGE_SIZE_STREAM) {
+        device_info.storageInfo.storageSize = data.storageMem;
+    }
+
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : streamID : %d : storage size : %llu\n", __FILE__, __LINE__,m_stream_id, device_info.storageInfo.storageSize);
 
     return device_info;
   }
@@ -1640,11 +1650,15 @@ int video_audio_pipeline_init() {
 /************************************************* audio api's end *****************************************/
 
 /************************************************* Wrapper api's start *************************************/
-int kvs_init(int stream_id) {
+int kvs_init(int stream_id, uint64_t storageMem = 0) {
   LOG_INFO("kvs_init - Enter");
 
   static bool islogconfigdone = false;
   char stream_name[MAX_STREAM_NAME_LEN];
+
+  if (storageMem != 0) {
+    data.storageMem = storageMem;
+  }
 
   //init kvs log config
   if( false == islogconfigdone ) {
