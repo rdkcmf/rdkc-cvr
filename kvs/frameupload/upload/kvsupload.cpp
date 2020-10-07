@@ -544,7 +544,7 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 			clipName = it->second;
 			clipmapwithtimecode.erase (it);
 			callbackObj->onUploadError(clipName.c_str(),"failed");
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvsclip upload unsuccessful %s\n",clipName.c_str());
+			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","kvsclip upload unsuccessful %s\n",clipName.c_str());
 		}
 		if(it == clipmapwithtimecode.end())
 		{
@@ -552,7 +552,7 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 			clipName = queueclipName.front();
 			queueclipName.pop_front();
 			callbackObj->onUploadError(clipName.c_str(),"failed");
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvsclip upload unsuccessful %s\n",clipName.c_str());
+			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","kvsclip upload unsuccessful %s\n",clipName.c_str());
 		}
 		return;
 	}
