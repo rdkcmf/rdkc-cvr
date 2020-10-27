@@ -24,21 +24,34 @@
 #include <stdlib.h>
 #include <string.h>
 #include <chrono>
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include <Logger.h>
+#endif /* CVR_PLATFORM_RPI */
+
 #include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include <PutFrameHelper.h>
+#endif /* CVR_PLATFORM_RPI */
+
 #include <atomic>
 #include <iostream>
 #include <iomanip>
 #include <queue>
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "KinesisVideoProducer.h"
 #include "CachingEndpointOnlyCallbackProvider.h"
 #include <IotCertCredentialProvider.h>
+#endif /* CVR_PLATFORM_RPI */
+
 #include "rdk_debug.h"
 
+#if !defined ( CVR_PLATFORM_RPI )
 using namespace std;
 using namespace com::amazonaws::kinesis::video;
 using namespace log4cplus;
@@ -1953,4 +1966,5 @@ int kvs_stream_play( char *clip, unsigned short& clip_audio, unsigned short& cli
     return 0;
   }
 }
+#endif /* CVR_PLATFORM_RPI */
 /************************************************* Wrapper api's end *************************************/

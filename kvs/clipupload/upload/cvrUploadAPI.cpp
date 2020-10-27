@@ -35,7 +35,11 @@
 #include "rtConnection.h"
 #include "rtLog.h"
 #include "rtMessage.h"
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "event_config.h"   //EventType
+#endif
+
 #include "kvsupload.h"
 #include "HttpClient.h"
 #include "cJSON.h"
@@ -297,6 +301,7 @@ static void PushMsg_kvs(cvr_upload_params_t msg)
  */
 static void * kvsUpload(void* args)
 {
+#if !defined ( CVR_PLATFORM_RPI )
     cvr_upload_params_t upload_params;
     memset(&upload_params, 0, sizeof(cvr_upload_params_t));
     pid_t pid = 0;
@@ -487,6 +492,7 @@ static void * kvsUpload(void* args)
             clock_gettime(CLOCK_REALTIME, &cvrstatstartTime);
         }
     }
+#endif /* CVR_PLATFORM_RPI */
 }
 
 /**
