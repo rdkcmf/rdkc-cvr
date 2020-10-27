@@ -60,6 +60,8 @@ extern "C"
 #endif
 
 #include "polling_config.h"
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "event_config.h"   //EventType
 #include "AUD_conf.h"	//AUD_Conf
 #include "main.h"   //ReadAllConf
@@ -67,6 +69,8 @@ extern "C"
 #include "cgi_image.h"	//set_audio_mic_enable_2
 #include "rdk_debug.h"
 #include "dev_config.h"
+#endif /* CVR_PLATFORM_RPI */
+
 #ifdef __cplusplus
 }
 #endif
@@ -134,6 +138,7 @@ static int enable_debug = 0;
 #define RDK_LOG_DEBUG1 (enable_debug ? (RDK_LOG_INFO) : (RDK_LOG_DEBUG))
 #define ENABLE_CVR_RDK_DEBUG_LOG_FILE     "/tmp/.enable_cvr_rdk_debug"
 
+#if !defined ( CVR_PLATFORM_RPI)
 typedef enum cvr_clip_status
 {
 	CVR_CLIP_GEN_START = 0,
@@ -322,4 +327,5 @@ class CVR {
       int getCVRStreamId();
 
 };
+#endif/* CVR_PLATFORM_RPI */
 #endif
