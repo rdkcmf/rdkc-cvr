@@ -34,6 +34,7 @@ extern "C"{
 #define CVR_RESOLUTION                 "resolution"
 #endif
 
+#if !defined ( CVR_PLATFORM_RPI)
 int CVR::cvr_audio_status = CVR_AUDIO_UNKNOWN;
 vai_result_t CVR::vai_result_recved_rtmsg;
 vai_result_t CVR::vai_result_recved;
@@ -2097,12 +2098,14 @@ void CVR::reload_config(int dummy)
         CVR::reload_cvr_flag = 1;
         CVR::reload_cvr_config = 1;
 }
+#endif /* CVR_PLATFORM_RPI */
 
 /** @description: main
  *  @return: int
  */
 int main(int argc, char *argv[])
 {
+#if !defined CVR_PLATFORM_RPI
         cvr_provision_info_t CloudRecorderInfo;
 
         rdk_logger_init("/etc/debug.ini");
@@ -2135,5 +2138,7 @@ int main(int argc, char *argv[])
 error_exit:
 	cvr_object.cvr_close(argv);
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s exit! - sigterm flag - %d \n", __FILE__, __LINE__, argv[0],CVR::term_flag);
+#endif /* CVR_PLATFORM_RPI */
+
 	return 0;
 }
