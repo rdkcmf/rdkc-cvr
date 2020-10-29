@@ -87,16 +87,12 @@ extern "C"
 #endif
 
 #define IP_ACQUIRED_FILE                 "/tmp/.IPAcquired"
-#ifdef OSI
-#define _SUPPORT_OBJECT_DETECTION_IV_
-#endif
-//extern struct ThreadControl hydraThreadControl[];
-//extern ThreadControl hydraThreadControl[];
+
 #define CVR_FAILURE			-1
 #define CVR_SUCCESS			 0
 
 #define CVR_CLIP_PATH                    "/tmp/cvr"
-#define CVR_CLIP_DURATION              	 15   //seconds
+#define CVR_CLIP_DURATION              	 4   //seconds
 #define CVR_CLIP_NUMBER                	 2
 #define CVR_FILE_PATH_LEN                256
 
@@ -137,12 +133,8 @@ static int enable_debug = 0;
 #define RDK_LOG_DEBUG1 (enable_debug ? (RDK_LOG_INFO) : (RDK_LOG_DEBUG))
 #define ENABLE_CVR_RDK_DEBUG_LOG_FILE     "/tmp/.enable_cvr_rdk_debug"
 
-
-#ifdef _HAS_XSTREAM_
 // to dump the h264 file into a file, please make the DEBUG_DUMP_H264 to '1'
 #define DEBUG_DUMP_H264 0
-#endif //_HAS_XSTREAM_
-
 
 using namespace std;
 typedef enum cvr_clip_status
@@ -153,12 +145,6 @@ typedef enum cvr_clip_status
     CVR_CLIP_GEN_PROGRESS
 }cvr_clip_status_t;
 
-//typedef enum {
-//    CVR_CLIP_GEN_START = 0,
-//    CVR_CLIP_GEN_END,
-//    CVR_CLIP_GEN_UNKNOWN
-//}CVR_CLIP_GEN_STATUS;
-//
 typedef enum {
     CVR_UPLOAD_OK = 0,
     CVR_UPLOAD_FAIL,
@@ -242,13 +228,9 @@ class CVR : public kvsUploadCallback
       unsigned long amba_hwtimer_msec(int fd);
       uint8_t calculate_motion_level(float motion_level_raw_sum,int frame_num, uint8_t event_type_raw);
 
-#ifdef _HAS_XSTREAM_
       int get_motion_statistics_info(frameInfoH264 *p_cvr_frame, unsigned int *p_frame_num_count,uint8_t *p_event_type_raw, float *p_motion_level_raw_sum);
-#else
-      int get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p_frame_num_count,uint8_t *p_event_type_raw, float *p_motion_level_raw_sum);
-#endif //_HAS_XSTREAM_
       int cvr_daemon_check_filelock(char *fname);
-      int get_audio_stream_id(int audio_index);
+      int cvr_read_config(cvr_provision_info_t *pCloudRecorderInfo);
       int cvr_enable_audio(bool val);
       int cvr_check_rfcparams();
       int get_quiet_interval();
@@ -299,7 +281,6 @@ class CVR : public kvsUploadCallback
       int isIPAcquired;
       unsigned long start_msec;
       struct tm* tv;
-#ifdef _HAS_XSTREAM_
       XStreamerConsumer objConsumer;
       frameInfoH264 *cvr_frame;
       frameInfoH264 *cvr_key_frame;
@@ -312,14 +293,6 @@ class CVR : public kvsUploadCallback
       static FILE *fp;
       static int frame_num;
 #endif //DEBUG_DUMP_H264
-#else
-      RDKC_FrameInfo cvr_frame;
-      RDKC_FrameInfo cvr_key_frame;
-      static RdkCPluginFactory* temp_factory; //creating plugin factory instance
-      static RdkCVideoCapturer* recorder;
-      camera_resource_config_t *conf;
-      video_stream_config_t *v_stream_conf;
-#endif //_HAS_XSTREAM_
       int m_streamid;
       unsigned short kvsclip_audio;/* audio enable flag */
       unsigned short kvsclip_highmem;/* highmem flag */
@@ -366,7 +339,7 @@ class CVR : public kvsUploadCallback
         bool iskvsStreamInitDone;
         std::map<long, EventType> eventMap;
         cvr_clip_status_t clipStatus;
-        uint64_t  storageMem;
+        uint64_t  m_storageMem;
 
         void sort_od_frame_data();
         void pop_od_frame_data(int *top);
@@ -376,28 +349,19 @@ class CVR : public kvsUploadCallback
         int stringify_od_frame_data();
         bool check_enabled_rfc_feature(char* rfc_feature_fname,char* rfc_feature);
 
-#ifdef _HAS_XSTREAM_
         bool pushFrames(frameInfoH264* frameInfo,
                 char* fileName,
                 int stream_id,
                 unsigned short kvsclip_audio,
                 EventType eventType = EVENT_TYPE_MAX,
                 bool isEOF = false);
-#else
-        bool pushFrames(RDKC_FrameInfo& frameInfo, 
-                char* fileName,
-                int stream_id,
-                unsigned short kvsclip_audio,
-                EventType eventType = EVENT_TYPE_MAX, 
-                bool isEOF = false);
-#endif //_HAS_XSTREAM_
         void onUploadSuccess(char* recName);
         void onUploadError(char* recName, const char* streamStatus);
     public:
       CVR();
       ~CVR();
-      int cvr_init(unsigned short kvsclip_audio,unsigned short useHighMem, uint64_t storageMemory=0);
-      void do_cvr();
+      int cvr_init(unsigned short kvsclip_audio,cvr_provision_info_t *pCloudRecorderInfo,uint64_t storageMemory = 0);
+      void do_cvr(void * pCloudRecorderInfo);
       int cvr_close();
       static volatile sig_atomic_t term_flag;
       static int  isCVREnabled;
