@@ -103,6 +103,7 @@ int time_difference = 15000;
 #define STORAGE_SIZE_STREAM2 (6 * 1024 * 1024)
 #define MIN_STORGE_SIZE (6 * 1024 * 1024)
 #define DEFAULT_STORAGE_SIZE_STREAM (3 * 1024 * 1024)
+#define MAX_STORAGE_SIZE_STREAM (10 * 1024 * 1024)
 #define DEFAULT_ROTATION_TIME_SECONDS 2400
 #define DEFAULT_VIDEO_TRACKID 1
 #define DEFAULT_FRAME_DURATION_MS 1
@@ -331,9 +332,11 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
             break;
         }
     }
-    if (data.storageMem != 0 && data.storageMem > MIN_STORGE_SIZE)
+
+    if (data.storageMem != 0 && data.storageMem >= MIN_STORGE_SIZE && data.storageMem <= MAX_STORAGE_SIZE_STREAM) {
         device_info.storageInfo.storageSize = data.storageMem;
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): SampleDeviceInfoProvider : storage size : %" PRIu64 "\n", __FILE__, __LINE__, device_info.storageInfo.storageSize);
+    }
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): SampleDeviceInfoProvider : storage size : %llu \n", __FILE__, __LINE__, device_info.storageInfo.storageSize);
 
     return device_info;
   }
@@ -814,8 +817,9 @@ int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0)
 {
 	LOG_DEBUG("kvsInit - Enter");
 	callbackObj = callback; 
- 	if (storageMem != 0)
+ 	if (storageMem != 0) {
  	  data.storageMem = storageMem;
+        }
 	static bool islogconfigdone = false;
         char *defaultstream = NULL;
 	char stream_name[MAX_STREAM_NAME_LEN];

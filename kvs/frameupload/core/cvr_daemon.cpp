@@ -1309,7 +1309,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
         if (argc == 4)
         {
                 m_storageMem = atoi(argv[3]); /*storage space*/
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): storageMem Allocated to : %" PRIu64 "\n", __FILE__, __LINE__, m_storageMem);
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): storageMem Allocated to : %llu\n", __FILE__, __LINE__, m_storageMem);
         }
 #endif
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
