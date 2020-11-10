@@ -413,7 +413,7 @@ void CVR::on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32
         rtMessage_Release(m);
 
 	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): data recieved in on_message\n", __FILE__, __LINE__);
-	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): timestamp: %llu, od_event_type = %lu, motion_level_raw = %f \n", __FILE__, __LINE__,(unsigned long long)vai_result_recved_rtmsg.timestamp, (unsigned long)vai_result_recved_rtmsg.event_type, vai_result_recved_rtmsg.motion_level_raw);
+	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): timestamp: %llu, od_event_type = %lu, motion_level_raw = %f curr_time: %llu\n", __FILE__, __LINE__,(unsigned long long)vai_result_recved_rtmsg.timestamp, (unsigned long)vai_result_recved_rtmsg.event_type, vai_result_recved_rtmsg.motion_level_raw, vai_result_recved_rtmsg.curr_time);
 
 	push_msg(vai_result_recved_rtmsg);
 }
@@ -674,45 +674,58 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
                 (*p_frame_num_count)++;
                 (*p_motion_level_raw_sum) = (*p_motion_level_raw_sum) + p_od_result->motion_level_raw;
                 RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): frame_num = %d, motion_level_raw = %f od_event_type = %02x\n", __FILE__, __LINE__,*p_frame_num_count, p_od_result->motion_level_raw, p_od_result->event_type);
-                if (p_od_result->event_type & (1 << EVENT_TYPE_PEOPLE)) {
+                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): cvr_event_seconds[%d]: %d curr_time: %llu timestamp: %llu\n", __FILE__, __LINE__, EVENT_TYPE_MOTION, cvr_event_seconds[EVENT_TYPE_MOTION], p_od_result-> curr_time, p_od_result->timestamp);
+              if (p_od_result->event_type & (1 << EVENT_TYPE_PEOPLE)) {
                         (*p_event_type_raw)= (*p_event_type_raw) | CVR_EVENT_TYPE_PEOPLE_MASK;
 #ifdef RTMSG
-		    if( 0 == cvr_event_seconds[EVENT_TYPE_PEOPLE] ) {
+		          if( 0 == cvr_event_seconds[EVENT_TYPE_PEOPLE] ) {
 #if 0
-			struct tm* tv = NULL;
-			tv = gmtime(&start_t.tv_sec);
-                        cvr_event_seconds[EVENT_TYPE_PEOPLE] = start_t.tv_sec;
-#endif		// #if 0
-			cvr_event_seconds[EVENT_TYPE_PEOPLE] = p_od_result-> curr_time;
-		    }
+			          struct tm* tv = NULL;
+			          tv = gmtime(&start_t.tv_sec);
+                      cvr_event_seconds[EVENT_TYPE_PEOPLE] = start_t.tv_sec;
+#endif // #if 0
+			          cvr_event_seconds[EVENT_TYPE_PEOPLE] = p_od_result-> curr_time;
+                      RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): People detected, Setting the object timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
+		          }
+                  else {
+                      RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): People detected, but object timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
+                  }
 #endif
-                }
+              }
 
-                if (p_od_result->event_type & (1 << EVENT_TYPE_TAMPER)) {
+              if (p_od_result->event_type & (1 << EVENT_TYPE_TAMPER)) {
                         (*p_event_type_raw) = (*p_event_type_raw) | CVR_EVENT_TYPE_TAMPER_MASK;
 #ifdef RTMSG
-		    if( 0 == cvr_event_seconds[EVENT_TYPE_TAMPER] ) {
+                  if( 0 == cvr_event_seconds[EVENT_TYPE_TAMPER] ) {
 #if 0
-			struct tm* tv;
-                        tv = gmtime(&start_t.tv_sec);
-                        cvr_event_seconds[EVENT_TYPE_TAMPER] = start_t.tv_sec;
+			          struct tm* tv;
+                      tv = gmtime(&start_t.tv_sec);
+                      cvr_event_seconds[EVENT_TYPE_TAMPER] = start_t.tv_sec;
 #endif
-                        cvr_event_seconds[EVENT_TYPE_TAMPER] = p_od_result-> curr_time;
-		    }
+                      cvr_event_seconds[EVENT_TYPE_TAMPER] = p_od_result-> curr_time;
+                      RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Tamper detected, Setting the tamper timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
+		          }
+                  else {
+                      RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Tamper detected, but tamper timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
+                  }
 #endif
-                }
+              }
 #ifdef RTMSG
               if (p_od_result->event_type & (1 << EVENT_TYPE_MOTION)) {
                         //(*p_event_type_raw) = (*p_event_type_raw) | CVR_EVENT_TYPE_MOTION_MASK;
-		    if( 0 == cvr_event_seconds[EVENT_TYPE_MOTION] ) {
+                  if( 0 == cvr_event_seconds[EVENT_TYPE_MOTION] ) {
 #if 0
-			struct tm* tv;
-                        tv = gmtime(&start_t.tv_sec);
-                        cvr_event_seconds[EVENT_TYPE_MOTION] = start_t.tv_sec;
-#endif		// #if 0
-                        cvr_event_seconds[EVENT_TYPE_MOTION] = p_od_result-> curr_time;
-		    }
-                }
+			          struct tm* tv;
+                      tv = gmtime(&start_t.tv_sec);
+                      cvr_event_seconds[EVENT_TYPE_MOTION] = start_t.tv_sec;
+#endif// #if 0
+                      cvr_event_seconds[EVENT_TYPE_MOTION] = p_od_result-> curr_time;
+                      RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Motion detected, Setting the motion timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
+		          }
+                  else {
+                      RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Motion detected, but motion timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
+                  }
+              }
 #else
         }
 #endif
@@ -778,85 +791,80 @@ int CVR::cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t
 	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR",",event_quiet_time=%d", event_quiet_time);
 
 #else
-        time_t cvr_event_seconds[EVENT_TYPE_MAX];
+	time_t cvr_event_seconds[EVENT_TYPE_MAX];
 
-        if (0 != read_cvr_event_seconds_into_file(cvr_event_seconds))
-        {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read cvr event timestamp error!\n", __FILE__, __LINE__);
-                return -1;
-        }
+	if (0 != read_cvr_event_seconds_into_file(cvr_event_seconds)) {
+		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read cvr event timestamp error!\n", __FILE__, __LINE__);
+		return -1;
+	}
 #endif
-        if (cvr_event_seconds[EVENT_TYPE_MOTION] >= cvr_starttime - 1)
-        {
+	if (cvr_event_seconds[EVENT_TYPE_MOTION] >= cvr_starttime - 1) {
 #ifdef RTMSG
 		/* Update event only if exceeds quiet time */
 		if( (cvr_event_seconds[EVENT_TYPE_MOTION] >= (prev_cvr_event_seconds[EVENT_TYPE_MOTION] + event_quiet_time)) ||
-			(0 == prev_cvr_event_seconds[EVENT_TYPE_MOTION]) )
-		{
+			(0 == prev_cvr_event_seconds[EVENT_TYPE_MOTION]) ) {
 #endif
 			*event_type = EVENT_TYPE_MOTION;
 			*event_datetime = cvr_event_seconds[EVENT_TYPE_MOTION];
 #ifdef RTMSG
 			prev_cvr_event_seconds[EVENT_TYPE_MOTION] = cvr_event_seconds[EVENT_TYPE_MOTION];
 		}
-		else
-		{
+		else {
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Skipping Motion events! curr ev time %d prev ev time %d \n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION], prev_cvr_event_seconds[EVENT_TYPE_MOTION]);
 		}
 #endif
 		cvr_event_seconds[EVENT_TYPE_MOTION] = 0;
-        }
+	}
 #ifdef _SUPPORT_TAMPER_DETECTION_
-        else if (cvr_event_seconds[EVENT_TYPE_TAMPER] >= cvr_starttime - 1)
-        {
+	else if (cvr_event_seconds[EVENT_TYPE_TAMPER] >= cvr_starttime - 1) {
 #ifdef RTMSG
 		/* Update event only if exceeds quiet time */
 		if( (cvr_event_seconds[EVENT_TYPE_TAMPER] >= (prev_cvr_event_seconds[EVENT_TYPE_TAMPER] + event_quiet_time)) ||
-                        (0 == prev_cvr_event_seconds[EVENT_TYPE_TAMPER]) )
-                {
+                        (0 == prev_cvr_event_seconds[EVENT_TYPE_TAMPER]) ) {
 #endif
 			*event_type = EVENT_TYPE_TAMPER;
 			*event_datetime = cvr_event_seconds[EVENT_TYPE_TAMPER];
 #ifdef RTMSG
 			prev_cvr_event_seconds[EVENT_TYPE_TAMPER] = cvr_event_seconds[EVENT_TYPE_TAMPER];
 		}
-		else
-		{
+		else {
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Skipping Motion events! curr ev time %d prev ev time %d \n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER], prev_cvr_event_seconds[EVENT_TYPE_TAMPER]);
 		}
 #endif
-                cvr_event_seconds[EVENT_TYPE_TAMPER] = 0;
-        }
+		cvr_event_seconds[EVENT_TYPE_TAMPER] = 0;
+	}
 #endif
 #ifdef _SUPPORT_OBJECT_DETECTION_
-        else if (cvr_event_seconds[EVENT_TYPE_PEOPLE] >= cvr_starttime - 1)
-        {
+	else if (cvr_event_seconds[EVENT_TYPE_PEOPLE] >= cvr_starttime - 1) {
 #ifdef RTMSG
 		/* Update event only if exceeds quiet time */
 		if( (cvr_event_seconds[EVENT_TYPE_PEOPLE] >= (prev_cvr_event_seconds[EVENT_TYPE_PEOPLE] + event_quiet_time)) ||
-                        (0 == prev_cvr_event_seconds[EVENT_TYPE_PEOPLE]) )
-                {
+                        (0 == prev_cvr_event_seconds[EVENT_TYPE_PEOPLE]) ) {
 #endif
 			*event_type = EVENT_TYPE_PEOPLE;
 			*event_datetime = cvr_event_seconds[EVENT_TYPE_PEOPLE];
 #ifdef RTMSG
 			prev_cvr_event_seconds[EVENT_TYPE_PEOPLE] = cvr_event_seconds[EVENT_TYPE_PEOPLE];
 		}
-		else
-		{
+		else {
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Skipping Motion events! curr ev time %d prev ev time %d \n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE], prev_cvr_event_seconds[EVENT_TYPE_PEOPLE]);
 		}
 #endif
-                cvr_event_seconds[EVENT_TYPE_PEOPLE] = 0;
-        }
+		cvr_event_seconds[EVENT_TYPE_PEOPLE] = 0;
+	}
+	else {
+			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): No valid event detection during the timeframe starting from %d, Present detection timestamps P:%d T:%d M:%d \n", __FILE__, __LINE__, cvr_starttime, cvr_event_seconds[EVENT_TYPE_PEOPLE], cvr_event_seconds[EVENT_TYPE_TAMPER], cvr_event_seconds[EVENT_TYPE_MOTION] );
+	}
 #endif
 
 #ifdef RTMSG
-
+	// Reset all the event detection timestamps
+	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Reseting all the detection timestamps, Present detection timestamps P:%d T:%d M:%d \n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE], cvr_event_seconds[EVENT_TYPE_TAMPER], cvr_event_seconds[EVENT_TYPE_MOTION] );
+	memset(&cvr_event_seconds, 0, sizeof(cvr_event_seconds));
 #else
-        write_cvr_event_seconds_into_file(cvr_event_seconds);   // Need write cvr event seconds back after we use it
+	write_cvr_event_seconds_into_file(cvr_event_seconds);   // Need write cvr event seconds back after we use it
 #endif
-        return 0;
+	return 0;
 }
 
 /** @description: getting audio streamm id
