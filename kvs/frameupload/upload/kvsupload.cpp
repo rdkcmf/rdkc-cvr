@@ -30,6 +30,8 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <ctime>
+#include <chrono>
 #include <queue>
 #include "KinesisVideoProducer.h"
 #include "StreamDefinition.h"
@@ -42,6 +44,7 @@
 #endif
 
 using namespace std;
+using namespace std::chrono;
 using namespace com::amazonaws::kinesis::video;
 using namespace log4cplus;
 using namespace std::chrono;
@@ -108,6 +111,7 @@ int time_difference = 15000;
 #define CVR_THRESHHOLD_FRAMEDROP_VIDEO 600
 #define CVR_STATUS_FILE "/tmp/.cvr_status"
 #define CVR_THRESHHOLD_COUNT  4
+#define NANO_MILLI_FACTOR 1000000
 
 /*Global variables - TBD - convert to private */
 kvsUploadCallback* callbackObj;
@@ -126,6 +130,7 @@ typedef struct _CustomData {
     gkvsclip_audio(0),
     kinesis_video_stream(nullptr),
     //audio related params
+    useEpochTimeStamp(0),
     storageMem(0),
     cvr_stream_id(3) {}
   //kvs components
@@ -137,6 +142,9 @@ typedef struct _CustomData {
   uint8_t *frame_data;
   // indicate whether a video key frame has been received or not.
   volatile bool first_frame;
+
+  //flag for using epoch timestamp
+  bool useEpochTimeStamp;
 
   //storage space to sdk
   uint64_t storageMem;
@@ -879,45 +887,90 @@ static bool reset_stream(CustomData *data) {
   return true;
 }
 
-static void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nanoseconds &dts, FRAME_FLAGS flags,
-                               char *data, size_t len,int track_Id)
-
+UINT64 LOCALTIME()
 {
-	//skip AAC header since sdk expects raw data only
-	static void* datat;
-        if(track_Id == 1) {
-		datat=data;
-	} else {
-		datat=&data[AAC_HEADER_LENGTH];
-		len=len-AAC_HEADER_LENGTH;
-	}
+    struct timespec nowTime;
+    clock_gettime(CLOCK_REALTIME, &nowTime);
 
-	frame->flags = flags;
+    // The precision needs to be on a 100th nanosecond resolution
+    return (UINT64)nowTime.tv_sec * HUNDREDS_OF_NANOS_IN_A_SECOND + (UINT64)nowTime.tv_nsec / DEFAULT_TIME_UNIT_IN_NANOS;
+}
+
+void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nanoseconds &dts, FRAME_FLAGS flags,
+                               char *framedata, size_t len,int track_Id, uint64_t &timestamp)
+{
+    //skip AAC header since sdk expects raw data only
+    static void* parsedframedata;
+
+    if(track_Id == 1) {
+        parsedframedata=framedata;
+    } else {
+        parsedframedata=&framedata[AAC_HEADER_LENGTH];
+        len=len-AAC_HEADER_LENGTH;
+    }
+
+    if(data.useEpochTimeStamp) {
+        static uint64_t videolastframetimestamp_prevsegment = 0LL;
+        static uint64_t audiolastframetimestamp_prevsegment = 0LL;
+        static uint64_t firstframetimestamp_nextsegment = 0LL;
+        uint64_t videotimediff = 0LL;
+        uint64_t audiotimediff = 0LL;
+
+        if(track_Id == 1) {
+            if( FRAME_FLAG_KEY_FRAME == flags ) {
+                firstframetimestamp_nextsegment = timestamp;
+                videotimediff = (firstframetimestamp_nextsegment - videolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ VIDEO FRAME DIFF] Time diff between fist I Frame of next segment and last video frame of previous segment : %lld\n", __FILE__, __LINE__, videotimediff);
+                if(data.gkvsclip_audio) {
+                    audiotimediff = (firstframetimestamp_nextsegment - audiolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ AUDIO FRAME DIFF] Time diff between fist I Frame of next segment and last audio frame of previous segment : %lld\n", __FILE__, __LINE__, audiotimediff);
+                }
+            } else {
+                videolastframetimestamp_prevsegment = timestamp;
+            }
+        } else {
+            audiolastframetimestamp_prevsegment = timestamp;
+        }
+    }
+
+    frame->flags = flags;
+    if(data.useEpochTimeStamp) {
+        frame->decodingTs = static_cast<UINT64> (timestamp / DEFAULT_TIME_UNIT_IN_NANOS);
+        frame->presentationTs = static_cast<UINT64> (timestamp / DEFAULT_TIME_UNIT_IN_NANOS);
+    } else {
 	frame->decodingTs = static_cast<UINT64>(dts.count()) / DEFAULT_TIME_UNIT_IN_NANOS;
 	frame->presentationTs = static_cast<UINT64>(pts.count()) / DEFAULT_TIME_UNIT_IN_NANOS;
-	frame->duration = 0;
-	frame->size = static_cast<UINT32>(len);
-	frame->frameData = reinterpret_cast<PBYTE>(datat);
-	frame->trackId = track_Id;
+    }
+    
+    frame->duration = 0;
+    frame->size = static_cast<UINT32>(len);
+    frame->frameData = reinterpret_cast<PBYTE>(parsedframedata);
+    frame->trackId = track_Id;
 }
 
 static bool put_frame(shared_ptr<KinesisVideoStream> kinesis_video_stream, char* data, const nanoseconds &pts, const nanoseconds &dts,
-              FRAME_FLAGS flags, size_t len,int id)
+              FRAME_FLAGS flags, size_t len,int id,uint64_t &timestamp)
 {
     Frame frame;
-    create_kinesis_video_frame(&frame, pts, dts, flags, data, len,id);
+    create_kinesis_video_frame(&frame, pts, dts, flags, data, len,id,timestamp);
     return kinesis_video_stream->putFrame(frame);
 }
 
 int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0)
 {
 	LOG_DEBUG("kvsInit - Enter");
+	char* useEpoch = NULL;
 	callbackObj = callback; 
  	if (storageMem != 0) {
  	  data.storageMem = storageMem;
         }
 	static bool islogconfigdone = false;
 
+	if (NULL !=(useEpoch = getenv("USE_EPOCH")))
+	{
+		data.useEpochTimeStamp = atoi(useEpoch);
+		RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): Using epoch time stamp - %d\n", __FILE__, __LINE__, data.useEpochTimeStamp);
+	}
 	//init kvs log config
 	if( false == islogconfigdone )
 	{
@@ -997,8 +1050,11 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
     static int single_clip_size=0;
     static int frame_dropped_count=0;
     static int frame_dropped_flag=0;
+    std::chrono::nanoseconds frametimestamp_nano;
     int track_id=1;
     std::chrono::system_clock::time_point time_now;
+    uint64_t fts;
+    uint64_t ftsmillis;
 
     if( data.gkvsclip_highmem != cliphighmem )
     {
@@ -1036,6 +1092,9 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Streaming Started \n", __FILE__, __LINE__);
     }
 
+    time_now = std::chrono::system_clock::now();
+    fts = std::chrono::duration_cast<std::chrono::nanoseconds>(time_now.time_since_epoch()).count();
+    ftsmillis = std::chrono::duration_cast<std::chrono::milliseconds>(time_now.time_since_epoch()).count();
     if(data.first_frame)
     {
 	//delete the files in the list in case of threshold limit
@@ -1069,19 +1128,29 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
 
         //Insert new clip in map
 	std::map<uint64_t, std::string>::iterator it;
-	it = clipmapwithtimecode.find(frameData.frame_timestamp);
+        if(data.useEpochTimeStamp) {
+	    it = clipmapwithtimecode.find(ftsmillis);
+        } else {
+            it = clipmapwithtimecode.find(frameData.frame_timestamp);
+        }
+
 	if (it == clipmapwithtimecode.end())
 	{
             for ( auto& x: clipmapwithtimecode) 
 	        RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Insert  Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
-	    clipmapwithtimecode.insert(std::pair<uint64_t, std::string>(frameData.frame_timestamp, clipName));
+
+            if(data.useEpochTimeStamp) {
+	        clipmapwithtimecode.insert(std::pair<uint64_t, std::string>(ftsmillis, clipName));
+            } else {
+	        clipmapwithtimecode.insert(std::pair<uint64_t, std::string>(frameData.frame_timestamp, clipName));
+            }
+
             for ( auto& x: clipmapwithtimecode) 
                 RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","After Insert Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
 	}
 
         //Insert time at which first frame of clip was pushed
 	std::map<std::string,std::chrono::system_clock::time_point>::iterator it2;
-        time_now = std::chrono::system_clock::now();
 	it2 = clipmapwithrealtime.find(clipName);
 	if (it2 == clipmapwithrealtime.end())
 	{
@@ -1113,7 +1182,8 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
     {   
         track_id = 2 ;
     }
-    std::chrono::nanoseconds frametimestamp_nano = std::chrono::milliseconds(frameData.frame_timestamp);
+
+    frametimestamp_nano = std::chrono::milliseconds(frameData.frame_timestamp);
 
     //EOF is marked at end of 16 sec fragment when CVR loop exits
     if(isEOF) {
@@ -1151,7 +1221,7 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
         }
         
         if (!put_frame(data.kinesis_video_stream, (void*)frameData.frame_ptr, std::chrono::nanoseconds(frametimestamp_nano),
-                    std::chrono::nanoseconds(frametimestamp_nano), kinesis_video_flags,  buffer_size,track_id)) {
+                    std::chrono::nanoseconds(frametimestamp_nano), kinesis_video_flags, buffer_size, track_id, fts)) {
             //log every minute
             if( (frame_dropped_count % 60) == 0 ) {
                 RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error - Failed to put frame : frame_dropped_count : %d : clip_name : %s stream type : %d\n",
