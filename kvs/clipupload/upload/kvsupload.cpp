@@ -654,7 +654,7 @@ void kinesis_video_stream_uninit(CustomData *data, uint64_t& hangdetecttime) {
       {
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : kvs put frame flush after stream uninit\n", __FILE__, __LINE__);
         data->putFrameHelper->flush();
-        data->putFrameHelper->putEofr();
+        //data->putFrameHelper->putEofr();
         data->put_frame_flushed = true;
       }
     }
