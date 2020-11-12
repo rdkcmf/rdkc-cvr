@@ -37,6 +37,10 @@ USE_STREAMUTILS = yes
 USE_GST = yes
 endif
 
+ifeq ($(XCAM_MODEL), SCHC2)
+USE_DEWARP = yes
+endif
+
 ifneq ($(ENABLE_XSTREAMER), true)
 USE_PLUGINS = yes
 else
