@@ -158,7 +158,7 @@ CVR::CVR(): init_flag(0),
 
 CVR::~CVR()
 {
-        RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","Destructor called \n", __FILE__, __LINE__);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","Destructor called \n", __FILE__, __LINE__);
 }
 
 /** @description: amba timer init
@@ -660,8 +660,8 @@ int CVR::get_motion_statistics_info(frameInfoH264 *p_cvr_frame, unsigned int *p_
 
         if (0 == p_od_result->timestamp || abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)) > (45000 * 2) ) {
             if (0 == count_motion_mismatch) {
-                RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d):All event are disabled, needn't get motion statistics\n ", __FILE__, __LINE__);
-                RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): MotionTimestamps p_od_result p_cvr_frame abs_diff: %llu, %llu, %lld\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d):All event are disabled, needn't get motion statistics\n ", __FILE__, __LINE__);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): MotionTimestamps p_od_result p_cvr_frame abs_diff: %llu, %llu, %lld\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
             }
             count_motion_mismatch++;
             return 0;

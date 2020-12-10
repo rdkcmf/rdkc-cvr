@@ -460,9 +460,9 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 	static uint64_t clipcount = 0;
 	static uint64_t clipuploadtime = 0;
 
-	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","Reporting fragment ACK received. Fragment timecode %" PRIu64 "\n", pFragmentAck->timestamp );
-	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","Reporting fragment ACK received. Fragment type %d\n", pFragmentAck->ackType );
-	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","Reporting fragment ACK received. Fragment seq number %s\n", pFragmentAck->sequenceNumber );
+	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","Reporting fragment ACK received. Fragment timecode %" PRIu64 "\n", pFragmentAck->timestamp );
+	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","Reporting fragment ACK received. Fragment type %d\n", pFragmentAck->ackType );
+	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","Reporting fragment ACK received. Fragment seq number %s\n", pFragmentAck->sequenceNumber );
 
 	if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_BUFFERING) {
 		if(!queueclipName.empty())

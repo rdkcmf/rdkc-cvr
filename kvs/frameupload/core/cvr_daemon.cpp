@@ -696,8 +696,8 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
                 //if (0 == p_od_result->timestamp || abs(p_od_result->timestamp - p_cvr_frame->arm_pts) > 45000) {
                 if (0 == p_od_result->timestamp || abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)) > (45000 * 2) ) {
                     if (0 == count_motion_mismatch) {
-                        RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d):All event are disabled, needn't get motion statistics\n ", __FILE__, __LINE__);
-                        RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): MotionTimestamps p_od_result p_cvr_frame abs_diff: %llu, %llu, %lld\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
+                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d):All event are disabled, needn't get motion statistics\n ", __FILE__, __LINE__);
+                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): MotionTimestamps p_od_result p_cvr_frame abs_diff: %llu, %llu, %lld\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
                     }
                     count_motion_mismatch++;
                     return 0;
@@ -711,11 +711,6 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
                         (*p_event_type_raw)= (*p_event_type_raw) | CVR_EVENT_TYPE_PEOPLE_MASK;
 #ifdef RTMSG
 		            if( 0 == cvr_event_seconds[EVENT_TYPE_PEOPLE] ) {
-#if 0
-			            struct tm* tv = NULL;
-			            tv = gmtime(&start_t.tv_sec);
-                        cvr_event_seconds[EVENT_TYPE_PEOPLE] = start_t.tv_sec;
-#endif// #if 0
                         cvr_event_seconds[EVENT_TYPE_PEOPLE] = p_od_result-> curr_time;
                         RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): People detected, Setting the object timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
                     }
@@ -729,11 +724,6 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
                         (*p_event_type_raw) = (*p_event_type_raw) | CVR_EVENT_TYPE_TAMPER_MASK;
 #ifdef RTMSG
                     if( 0 == cvr_event_seconds[EVENT_TYPE_TAMPER] ) {
-#if 0
-                        struct tm* tv;
-                        tv = gmtime(&start_t.tv_sec);
-                        cvr_event_seconds[EVENT_TYPE_TAMPER] = start_t.tv_sec;
-#endif
                         cvr_event_seconds[EVENT_TYPE_TAMPER] = p_od_result-> curr_time;
                         RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Tamper detected, Setting the tamper timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
                     }
@@ -746,11 +736,6 @@ int CVR::get_motion_statistics_info(RDKC_FrameInfo *p_cvr_frame, unsigned int *p
                 if (p_od_result->event_type & (1 << EVENT_TYPE_MOTION)) {
                         //(*p_event_type_raw) = (*p_event_type_raw) | CVR_EVENT_TYPE_MOTION_MASK;
                     if( 0 == cvr_event_seconds[EVENT_TYPE_MOTION] ) {
-#if 0
-                        struct tm* tv;
-                        tv = gmtime(&start_t.tv_sec);
-                        cvr_event_seconds[EVENT_TYPE_MOTION] = start_t.tv_sec;
-#endif// #if 0
                         cvr_event_seconds[EVENT_TYPE_MOTION] = p_od_result-> curr_time;
                         RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Motion detected, Setting the motion timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
                     }
