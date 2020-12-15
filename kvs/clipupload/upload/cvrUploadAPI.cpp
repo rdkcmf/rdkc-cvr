@@ -77,6 +77,7 @@ typedef struct cvr_upload_params_s
     unsigned short gkvsclip_abstime;
     unsigned short gkvsclip_livemode;
     int stream_id;
+    uint64_t storageMem;
 } cvr_upload_params_t;
 
 typedef struct _stat_config
@@ -333,10 +334,10 @@ static void * kvsUpload(void* args)
         int ret = RDKC_SUCCESS;
         memset(&upload_params, 0, sizeof(cvr_upload_params_t));
         PopMsg_kvs(&upload_params);
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvs clip to server : %s, %s, %s, %d, %lu, %s, %d, %u, %u, %u, %d\n", __FILE__, __LINE__, 
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvs clip to server : %s, %s, %s, %d, %lu, %s, %d, %u, %u, %u, %d, %llu \n", __FILE__, __LINE__,
                 upload_params.fpath, upload_params.starttime, upload_params.endtime, upload_params.event_type,
                 upload_params.event_datetime, upload_params.m_fpath, upload_params.motion_level_idx,
-                upload_params.gkvsclip_audio, upload_params.gkvsclip_abstime, upload_params.gkvsclip_livemode, upload_params.stream_id);
+                upload_params.gkvsclip_audio, upload_params.gkvsclip_abstime, upload_params.gkvsclip_livemode, upload_params.stream_id, upload_params.storageMem);
 
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): kvs clip size:%d\n", __FILE__, __LINE__,filesize(upload_params.fpath));
 
@@ -354,7 +355,7 @@ static void * kvsUpload(void* args)
         if ( false == iskvsinitdone ) {
             do {
                 RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): Invoking kvs_init\n", __FILE__, __LINE__);
-                ret_kvs = kvs_init(upload_params.stream_id);
+                ret_kvs = kvs_init(upload_params.stream_id,upload_params.storageMem);
 
                 static int retry = 0;
                 if (0 != ret_kvs) {
@@ -704,7 +705,7 @@ int updateStatConfiguration()
  */
 int cvr_upload(char* fpath, char* starttime, char* endtime, int event_type, unsigned int event_datetime, char* m_fpath, 
                int motion_level_idx, char* str_od_data , char* va_engine_version, bool smartTnEnabled,
-               unsigned short& kvsclip_audio, unsigned short& kvsclip_abstime, unsigned short&  kvsclip_livemode, int stream_id)
+               unsigned short& kvsclip_audio, unsigned short& kvsclip_abstime, unsigned short&  kvsclip_livemode, int stream_id, uint64_t storageMem)
 {
 	memset(&param, 0, sizeof(cvr_upload_params_t));
 
@@ -729,9 +730,10 @@ int cvr_upload(char* fpath, char* starttime, char* endtime, int event_type, unsi
         param.gkvsclip_abstime = kvsclip_abstime; /* abs timestamp flag */
         param.gkvsclip_livemode = kvsclip_livemode; /* live mode flag */
         param.stream_id = stream_id;
+        param.storageMem = storageMem;
 
-        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_abstime: %d : kvsclip_livemode : %d : stream id : %d\n", 
-                           __FILE__, __LINE__, param.gkvsclip_audio, param.gkvsclip_abstime, param.gkvsclip_livemode, param.stream_id);
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_abstime: %d : kvsclip_livemode : %d : stream id : %d : storage: %llu \n",
+                           __FILE__, __LINE__, param.gkvsclip_audio, param.gkvsclip_abstime, param.gkvsclip_livemode, param.stream_id, param.storageMem);
 
         PushMsg_kvs(param);
 	return RDKC_SUCCESS;

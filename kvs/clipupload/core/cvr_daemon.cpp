@@ -101,7 +101,7 @@ CVR::CVR(): init_flag(0),
 	    count_med(0),
 	    count_high(0),
             kvsclip_audio(0),
-	    kvsclip_highmem(0)
+	    m_storageMem(0)
 {
 #ifdef RTMSG
 	rtmessageCVRThreadExit = false;
@@ -1230,9 +1230,16 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
         }
 
         kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
-	kvsclip_highmem = atoi(argv[2]);    /* highmem flag */
 
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
+#ifdef XCAM2
+        if (argc == 5)
+        {
+                m_storageMem = atoi(argv[4]); /*storage space*/
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): storageMem Allocated to : %llu\n", __FILE__, __LINE__, m_storageMem);
+        }
+#endif
+
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d\n", __FILE__, __LINE__, kvsclip_audio);
 
         // Init cvr flag
         cvr_flag = RDKC_STRAM_FLAG_VIDEO;       // Video is must
@@ -2005,11 +2012,11 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 						}
 						cvr_upload( fpath, starttime, endtime, event_type, event_datetime,m_fpath,
 								motion_level_idx+1,str_od_data,va_engine_version,true,
-								kvsclip_audio, kvsclip_abstime, kvsclip_livemode,( m_streamid & 0x0F ));
+								kvsclip_audio, kvsclip_abstime, kvsclip_livemode,( m_streamid & 0x0F ), m_storageMem);
 					} else {
 						cvr_upload( fpath, starttime, endtime, event_type, event_datetime,m_fpath,
 								motion_level_idx+1,str_od_data,va_engine_version,false,
-								kvsclip_audio, kvsclip_abstime, kvsclip_livemode, ( m_streamid & 0x0F ));
+								kvsclip_audio, kvsclip_abstime, kvsclip_livemode, ( m_streamid & 0x0F ), m_storageMem);
 					}
 				}
 				else
@@ -2023,11 +2030,11 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 						}
 						cvr_upload( fpath, starttime, endtime, event_type, event_datetime,m_fpath,
 								motion_level_idx+1,NULL,NULL,true,kvsclip_audio, 
-								kvsclip_abstime, kvsclip_livemode, ( m_streamid & 0x0F ));
+								kvsclip_abstime, kvsclip_livemode, ( m_streamid & 0x0F ), m_storageMem);
 					} else {
 						cvr_upload( fpath, starttime, endtime, event_type, event_datetime,m_fpath,
 								motion_level_idx+1,NULL,NULL,false,
-								kvsclip_audio, kvsclip_abstime, kvsclip_livemode,( m_streamid & 0x0F ));
+								kvsclip_audio, kvsclip_abstime, kvsclip_livemode,( m_streamid & 0x0F ), m_storageMem);
 					}
 				}
 				RDK_LOG(RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): No Motion: %d, Low Motion: %d, Medium Motion: %d, High Motion: %d\n",__FILE__, __LINE__, count_no, count_low, count_med, count_high);
