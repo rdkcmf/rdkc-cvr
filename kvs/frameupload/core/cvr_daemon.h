@@ -135,12 +135,6 @@ extern "C"
 
 #define OPTIMIZED_VIDEO_PROFILE_FILE      "/opt/usr_config/OptimizedVideoProfile_Enable.txt"
 
-/* Enable run time debug logging */
-static int enable_debug = 0;
-#define RDK_LOG_DEBUG1 (enable_debug ? (RDK_LOG_INFO) : (RDK_LOG_DEBUG))
-#define ENABLE_CVR_RDK_DEBUG_LOG_FILE     "/tmp/.enable_cvr_rdk_debug"
-
-
 #ifdef _HAS_XSTREAM_
 // to dump the h264 file into a file, please make the DEBUG_DUMP_H264 to '1'
 #define DEBUG_DUMP_H264 0
@@ -250,10 +244,6 @@ class CVR : public kvsUploadCallback
       EventType event_type;
       time_t event_datetime; //record the time that event happened.
       time_t cvr_starttime;
-      char starttime[200];
-      char endtime[200];
-      //struct timeval start_t;
-      //struct timeval end_t;
       struct timespec start_t;
       struct timespec end_t;
       uint8_t  motion_statistics_info[VIDEO_DURATION_MAX + 8];
@@ -354,7 +344,7 @@ class CVR : public kvsUploadCallback
 #endif
         bool iskvsInitDone;
         bool iskvsStreamInitDone;
-        std::map<long, EventType> eventMap;
+        std::map<long long int, EventType> eventMap;
         cvr_clip_status_t clipStatus;
         uint64_t m_storageMem;
 
@@ -388,7 +378,7 @@ class CVR : public kvsUploadCallback
       ~CVR();
       int cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo);
       void do_cvr(void * pCloudRecorderInfo);
-      int cvr_close(char *argv[]);
+      int cvr_close();
       static volatile sig_atomic_t term_flag;
       static void self_term(int sig);
       static volatile sig_atomic_t reload_cvr_flag;
