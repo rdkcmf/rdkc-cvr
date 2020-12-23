@@ -72,11 +72,10 @@ clean: uninstall
 	$(RM) -f $(OBJ) $(RELEASE_TARGET) $(DEBUG_TARGET)
 
 install:
-ifneq ($(XCAM_MODEL), XHB1)
 	$(PLATFORM_BREAKPAD_BINARY) $(DEBUG_TARGET) > $(RELEASE_TARGET).sym
 	mv -f $(RELEASE_TARGET).sym  $(PLATFORM_SYMBOL_PATH)
 	echo "kvs frame upload debug symbol created for $(RELEASE_TARGET)"
-endif
+
 	$(INSTALL) -D $(RELEASE_TARGET) ${RDK_SDROOT}/usr/local/bin/$(RELEASE_TARGET)
 
 uninstall:
