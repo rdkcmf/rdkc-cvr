@@ -460,7 +460,7 @@ void CVR::receive_rtmessage()
 	    err = rtConnection_Dispatch(connectionRecv);
 	    rtLog_Debug("dispatch:%s", rtStrError(err));
 	    if (err != RT_OK) {
-		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error receiving msg via rtmessage\n",__FUNCTION__,__LINE__);
+		RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Error receiving msg via rtmessage\n",__FUNCTION__,__LINE__);
 	    }
 	    usleep(10000);
     }
