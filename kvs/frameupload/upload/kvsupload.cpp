@@ -58,13 +58,9 @@ long compute_stats();
 }
 #endif
 
-LOGGER_TAG("com.amazonaws.kinesis.video.gstreamer");
+LOGGER_TAG("com.amazonaws.kinesis.video.frameupload");
 
-#define ACCESS_KEY_ENV_VAR "AWS_ACCESS_KEY_ID"
 #define DEFAULT_REGION_ENV_VAR "AWS_DEFAULT_REGION"
-#define DEFAULT_STREAM_NAME "STREAM_NAME"
-#define SECRET_KEY_ENV_VAR "AWS_SECRET_ACCESS_KEY"
-#define SESSION_TOKEN_ENV_VAR "AWS_SESSION_TOKEN"
 #define KVS_LOG_CONFIG_ENV_VER "KVS_LOG_CONFIG"
 #define KVSINITMAXRETRY 5
 #define MAX(a,b)        (((a) > (b)) ? (a) : (b))
@@ -602,35 +598,47 @@ STATUS SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler(UINT6
 unique_ptr<Credentials> credentials_;
 
 //kinesis producer init
-static void kinesisVideoInit(CustomData *data, char* stream_name)
+static void kinesisVideoInit(CustomData *data)
 {
-
-    if((stream_name == NULL))
-        throw runtime_error(std::string("stream name empty"));
-
-    STRNCPY(data->stream_name, stream_name,MAX_STREAM_NAME_LEN);
-    data->stream_name[MAX_STREAM_NAME_LEN -1] = '\0';
-    LOG_INFO("kinesisVideoInit enter data stream name" << data->stream_name);
-
     unique_ptr<DeviceInfoProvider> device_info_provider = make_unique<SampleDeviceInfoProvider>(data->cvr_stream_id);
     unique_ptr<ClientCallbackProvider> client_callback_provider = make_unique<SampleClientCallbackProvider>();
-
     unique_ptr<StreamCallbackProvider> stream_callback_provider = make_unique<SampleStreamCallbackProvider>(
             reinterpret_cast<UINT64>(data));
 
-    char const *accessKey;
-    char const *secretKey;
-    char const *sessionToken;
     char const *defaultRegion;
     char const *iot_get_credential_endpoint;
     char const *cert_path;
     char const *private_key_path;
     char const *role_alias;
     char const *ca_cert_path;
-
+    char const *streamname;
     string defaultRegionStr;
-    string sessionTokenStr;
+    
+    unique_ptr<CredentialProvider> credential_provider;
+    if (nullptr!=(iot_get_credential_endpoint = getenv("IOT_GET_CREDENTIAL_ENDPOINT")) &&
+            nullptr!=(cert_path = getenv("CERT_PATH")) &&
+            nullptr!=(private_key_path = getenv("PRIVATE_KEY_PATH")) &&
+            nullptr!=(role_alias = getenv("ROLE_ALIAS")) &&
+            nullptr!=(ca_cert_path = getenv("CA_CERT_PATH")) &&
+            nullptr!=(streamname = getenv("STREAM_NAME"))) {
+        LOG_INFO("Using IoT credentials for Kinesis Video Streams : "  << streamname << " iot_get_credential_endpoint : " << iot_get_credential_endpoint << " cert_path : " << cert_path
+                << " private_key_path : " << private_key_path << " role_alias : " << role_alias << " ca_cert_path : " << ca_cert_path );
+        
+        credential_provider = make_unique<IotCertCredentialProvider>(iot_get_credential_endpoint,
+                string(cert_path),
+                string(private_key_path),
+                string(role_alias),
+                string(ca_cert_path),
+                string(streamname)
+                );
+    }
 
+    //stream name
+    STRNCPY(data->stream_name, streamname,MAX_STREAM_NAME_LEN);
+    data->stream_name[MAX_STREAM_NAME_LEN -1] = '\0';
+    LOG_INFO("kinesisVideoInit enter data stream name " << data->stream_name);
+
+    //region
     if (nullptr==(defaultRegion = getenv(DEFAULT_REGION_ENV_VAR)))
     {
         defaultRegionStr = DEFAULT_AWS_REGION;
@@ -641,24 +649,6 @@ static void kinesisVideoInit(CustomData *data, char* stream_name)
     }
 
     LOG_INFO("kinesisVideoInit defaultRegion = " << defaultRegionStr);
-    
-    unique_ptr<CredentialProvider> credential_provider;
-    if (nullptr!=(iot_get_credential_endpoint = getenv("IOT_GET_CREDENTIAL_ENDPOINT")) &&
-            nullptr!=(cert_path = getenv("CERT_PATH")) &&
-            nullptr!=(private_key_path = getenv("PRIVATE_KEY_PATH")) &&
-            nullptr!=(role_alias = getenv("ROLE_ALIAS")) &&
-            nullptr!=(ca_cert_path = getenv("CA_CERT_PATH"))) {
-        LOG_INFO("Using IoT credentials for Kinesis Video Streams : "  << data->stream_name << " iot_get_credential_endpoint : " << iot_get_credential_endpoint << " cert_path : " << cert_path
-                << " private_key_path : " << private_key_path << " role_alias : " << role_alias << " ca_cert_path : " << ca_cert_path );
-        
-        credential_provider = make_unique<IotCertCredentialProvider>(iot_get_credential_endpoint,
-                cert_path,
-                private_key_path,
-                role_alias,
-                ca_cert_path,
-                data->stream_name
-                );
-    }
 
     //cache callback
     unique_ptr<DefaultCallbackProvider>
@@ -835,9 +825,6 @@ int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0)
  	  data.storageMem = storageMem;
         }
 	static bool islogconfigdone = false;
-        char *defaultstream = NULL;
-	char stream_name[MAX_STREAM_NAME_LEN];
-	memset(stream_name, '\0', MAX_STREAM_NAME_LEN);
 
 	//init kvs log config
 	if( false == islogconfigdone )
@@ -855,23 +842,14 @@ int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0)
 
 		islogconfigdone = true;
 	}
-	if (nullptr == (defaultstream = getenv(DEFAULT_STREAM_NAME)))
-	{
-		SNPRINTF(stream_name, MAX_STREAM_NAME_LEN, "TEST-CVR");
-	}
-	else
-	{
-		SNPRINTF(stream_name, MAX_STREAM_NAME_LEN, defaultstream);
-	}
 
-	LOG_DEBUG("kvsInit - kvs Stream Name :" << stream_name);
 	//set stream id
 	data.cvr_stream_id = stream_id;
 
 	//init kinesis video
 	try
 	{
-		kinesisVideoInit(&data, stream_name);
+		kinesisVideoInit(&data);
 	}
 	catch (runtime_error &err)
 	{
