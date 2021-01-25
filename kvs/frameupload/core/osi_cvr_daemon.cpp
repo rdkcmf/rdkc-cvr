@@ -1364,8 +1364,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     int ret_videoStreamConfig = -1;
     cvr_provision_info_t *CloudRecorderInfo  = (cvr_provision_info_t*)pCloudRecorderInfo ;
     int iscvrenabled = atoi(CloudRecorderInfo->enable);
-    //file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
-    file_len = CVR_CLIP_DURATION;
+    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
 
     while (!term_flag)
     {
@@ -1389,8 +1388,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             if (0 == rdkc_ret)
             {
                 iscvrenabled = atoi(CloudRecorderInfo->enable);
-                //file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
-                file_len = CVR_CLIP_DURATION;
+                file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
                 RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d, file_len=%d!\n", __LINE__, iscvrenabled,file_len);
             }
             else
@@ -1616,8 +1614,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 if (0 == rdkc_ret)
                 {
                     iscvrenabled = atoi(CloudRecorderInfo->enable);
-                    //file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
-                    file_len = CVR_CLIP_DURATION;
+                    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d, file_len=%d!\n", __LINE__, iscvrenabled,file_len);
                 }
                 else
@@ -1942,7 +1939,7 @@ void CVR::self_term(int sig)
 //	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Received signal SIGTER!!\n", __FILE__, __LINE__);
 }
 
-volatile sig_atomic_t CVR::reload_cvr_flag = 1;
+volatile sig_atomic_t CVR::reload_cvr_flag = 0;
 void CVR::reload_config(int dummy)
 {
         CVR::reload_cvr_flag = 1;
