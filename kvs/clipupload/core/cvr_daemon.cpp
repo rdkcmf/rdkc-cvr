@@ -2107,7 +2107,7 @@ void CVR::self_term(int sig)
 //	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Received signal SIGTER!!\n", __FILE__, __LINE__);
 }
 
-volatile sig_atomic_t CVR::reload_cvr_flag = 1;
+volatile sig_atomic_t CVR::reload_cvr_flag = 0;
 void CVR::reload_config(int dummy)
 {
         CVR::reload_cvr_flag = 1;
