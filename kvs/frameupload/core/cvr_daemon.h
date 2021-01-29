@@ -344,6 +344,7 @@ class CVR : public kvsUploadCallback
 #endif
         bool iskvsInitDone;
         bool iskvsStreamInitDone;
+        unsigned short contentchangestatus;
         std::map<long long int, EventType> eventMap;
         cvr_clip_status_t clipStatus;
         uint64_t m_storageMem;
@@ -362,14 +363,16 @@ class CVR : public kvsUploadCallback
                 int stream_id,
                 unsigned short kvsclip_audio,
                 EventType eventType = EVENT_TYPE_MAX,
-                bool isEOF = false);
+                bool isEOF = false,
+                bool doInit = false);
 #else
         bool pushFrames(RDKC_FrameInfo& frameInfo, 
                 char* fileName,
                 int stream_id,
                 unsigned short kvsclip_audio,
                 EventType eventType = EVENT_TYPE_MAX, 
-                bool isEOF = false);
+                bool isEOF = false,
+                bool doInit = false);
 #endif //_HAS_XSTREAM_
         void onUploadSuccess(char* recName);
         void onUploadError(char* recName, const char* streamStatus);
