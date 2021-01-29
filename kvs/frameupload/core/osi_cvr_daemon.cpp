@@ -69,7 +69,7 @@ using namespace std;
 
 void CVR::onUploadSuccess(char* cvrRecName)
 {
-    long recIndex = atol(cvrRecName);
+    long long int recIndex = atol(cvrRecName);
     EventType eventType = eventMap.find(recIndex)->second;
     if(eventType == EVENT_TYPE_MOTION)
     {
@@ -79,7 +79,7 @@ void CVR::onUploadSuccess(char* cvrRecName)
     {
         RDK_LOG(RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): kvs Upload Successful without Motion - %s\n", __FUNCTION__, __LINE__, cvrRecName);
     }
-    std::map<long, EventType>::iterator it;
+    std::map<long long int, EventType>::iterator it;
     it = eventMap.find(recIndex);
     if (it != eventMap.end())
     {
@@ -137,6 +137,7 @@ CVR::CVR(): init_flag(0),
 	count_low(0),
 	count_med(0),
 	count_high(0),
+	contentchangestatus(0),
 	iskvsInitDone(false),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
@@ -1150,10 +1151,10 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
 					int stream_id,
 					unsigned short kvsclip_audio,
 					EventType eventType = EVENT_TYPE_MAX,
-					bool isEOF = false)
+					bool isEOF = false,
+					bool doInit = false)
 {
     int ret_kvs = RDKC_SUCCESS;
-    unsigned short contentchangestatus = 0;
 
     if(!fileName)
     {
@@ -1162,51 +1163,57 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
     }
     
     //kvs init
-    if(!iskvsInitDone)
+    if(doInit)
     {
-        do
+        if(!iskvsInitDone)
         {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsInit with storage %lu\n", __FILE__, __LINE__,m_storageMem);
-            ret_kvs = kvsInit(this, stream_id, m_storageMem);
-
-            static int retry = 0;
-            if (0 != ret_kvs)
+            do
             {
-                retry++;
-                if ( retry > KVSINITMAXRETRY )
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsInit with storage %lu\n", __FILE__, __LINE__,m_storageMem);
+                ret_kvs = kvsInit(this, stream_id, m_storageMem);
+
+                static int retry = 0;
+                if (0 != ret_kvs)
                 {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in kvsInit exit process %d\n", __FILE__, __LINE__);
-                    exit(1);
+                    retry++;
+                    if ( retry > KVSINITMAXRETRY )
+                    {
+                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in kvsInit exit process %d\n", __FILE__, __LINE__);
+                        cvr_close();
+                        exit(0);
+                    }
+                    iskvsInitDone = false;
+                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : kvsInit Failed retry number : %d \n", __FILE__, __LINE__,retry);
+                    sleep(2);
                 }
-                iskvsInitDone = false;
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : kvsInit Failed retry number : %d \n", __FILE__, __LINE__,retry);
-                sleep(2);
-            }
-            else if ( 0 == ret_kvs )
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsInit success \n", __FILE__, __LINE__);
-                iskvsInitDone = true;
-            }
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): After Invoking kvsInit\n", __FILE__, __LINE__);
-        } while ( ret_kvs != 0);
-    }
+                else if ( 0 == ret_kvs )
+                {
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsInit success \n", __FILE__, __LINE__);
+                    iskvsInitDone = true;
+                }
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): After Invoking kvsInit\n", __FILE__, __LINE__);
+            } while ( ret_kvs != 0);
+        }
 
-    //kvs stream init
-    if ( false == iskvsStreamInitDone )
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsStreamInit \n", __FILE__, __LINE__ );
-        contentchangestatus = 0;
-        ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, contentchangestatus);
-        if ( true == ret_kvs )
+        //kvs stream init
+        if ( false == iskvsStreamInitDone )
         {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsStreamInit success \n", __FILE__, __LINE__);
-            iskvsStreamInitDone = true;
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsStreamInit \n", __FILE__, __LINE__ );
+            contentchangestatus = 0;
+            ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, contentchangestatus);
+            if ( true == ret_kvs )
+            {
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsStreamInit success \n", __FILE__, __LINE__);
+                iskvsStreamInitDone = true;
+            }
+            else
+            {
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Max retry reached in kvsStreamInit exit process \n", __FILE__, __LINE__);
+                cvr_close();
+                exit(0);
+            }
         }
-        else
-        {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Max retry reached in kvsStreamInit exit process \n", __FILE__, __LINE__);
-            exit(1);
-        }
+        return;
     }
 
     bool cvr_upload_retry = false;
@@ -1287,6 +1294,7 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
         if(isEOF)
         {
             RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR","EOF Frame pushed. Marking the End of a clip %s\n", fileName);
+            if (2 != ret_kvs)
             break;
         }
 
@@ -1329,9 +1337,16 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
                 else
                 {
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Max retry reached in Re-Invoking kvsStreamInit exit process \n", __FILE__, __LINE__);
-                    exit(1);
+                    cvr_close();
+                    exit(0);
                 }
             }
+        }
+        else if(2 == ret_kvs)
+        {
+            RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Failed to receive fragment ack\n", __FILE__,__LINE__);
+            cvr_close();
+            exit(0);
         }
         else 
         {
@@ -1509,6 +1524,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             init_flag = 1;
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): CVR init succesfull!\n", __LINE__);
 
+            tv = gmtime(&start_t.tv_sec);
+            snprintf(file_name, sizeof(file_name), "%04d%02d%02d%02d%02d%02d", (tv->tm_year+1900), tv->tm_mon+1, tv->tm_mday, tv->tm_hour, tv->tm_min, tv->tm_sec);
+            if(!iskvsInitDone)
+            {
+                pushFrames(cvr_key_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, false, true);
+            }
             // wait for I frame
             while (!term_flag)
             {
@@ -1573,6 +1594,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         motion_level_idx = 1;
 
         // Generate the file name base on the time
+        memset(file_name, '\0', sizeof(file_name));
         tv = gmtime(&start_t.tv_sec);
         snprintf(file_name, sizeof(file_name), "%04d%02d%02d%02d%02d%02d", (tv->tm_year+1900), tv->tm_mon+1, tv->tm_mday, tv->tm_hour, tv->tm_min, tv->tm_sec);
         // Generate the file name which used to save CVR clip
@@ -1600,7 +1622,8 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             get_motion_statistics_info(cvr_key_frame, &frame_num_count, &event_type_raw, &motion_level_raw_sum);
         }
 
-        while ((long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
+        long frameTimeStamp_first = start_msec;
+        while (((long)cvr_frame->frame_timestamp - frameTimeStamp_first) < file_len*1000 )
         {
             if (term_flag || local_stream_err)
             {
@@ -1641,6 +1664,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             }
             else if (0 == ccode)
             {
+                if(contentchangestatus == 1)
+                {
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): contentStatus changed\n", __FILE__, __LINE__);
+                    contentchangestatus = 0;
+                    break;
+                }
                 if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
                         && (long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
                 {
@@ -1729,6 +1758,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 else
                 {
+                    if(contentchangestatus == 1)
+                    {
+                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): contentStatus changed\n", __FILE__, __LINE__);
+                        contentchangestatus = 0;
+                        break;
+                    }
                     if (IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
                     {
                         has_an_iframe = 1;
@@ -1826,7 +1861,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
             //if local stream error is met while creating clip discard the clip sine it's an incomplete ts clip
             if( 0 == local_stream_err ) {
-                long fileIndex = atol(file_name);
+                long long int fileIndex = atoll(file_name);
                 //Uploading  data to the server
                 if((od_frame_upload_enabled) &&
                         (EVENT_TYPE_MOTION == event_type) &&
@@ -1847,15 +1882,23 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Notified clip end to smt with valid timestamp - %ld - filename (%s) \n", __FILE__, __LINE__, event_datetime, file_name);
                         notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name, event_datetime);
                     }
-                    eventMap.insert(std::pair<long, EventType>(fileIndex, event_type));
-                    RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Inserted into the eventMap\n", __FILE__, __LINE__);
+                    std::pair<std::map<long long int, EventType>::iterator, bool> retElem;
+                    retElem = eventMap.insert(std::pair<long long int, EventType>(fileIndex, event_type));
+                    if ((retElem.first->first != fileIndex) || (retElem.second != true))
+                       RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Insertion into the eventMap failed. element value - %lld, eventType - %d, return status - %d\n", __FILE__, __LINE__, retElem.first->first, retElem.first->second, retElem.second);
+                    else
+                       RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Inserted into the eventMap\n", __FILE__, __LINE__);
                     pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, true);
                 }
                 else
                 {
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Smart thumbnail disabled. Pushing frames\n", __FILE__, __LINE__);
-                    eventMap.insert(std::pair<long, EventType>(fileIndex, event_type));
-                    RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Inserted into the eventMap\n", __FILE__, __LINE__);
+                    std::pair<std::map<long long int, EventType>::iterator, bool> retElem;
+                    retElem = eventMap.insert(std::pair<long long int, EventType>(fileIndex, event_type));
+                    if ((retElem.first->first != fileIndex) || (retElem.second != true))
+                       RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Insertion into the eventMap failed. element value - %lld, eventType - %d, return status - %d\n", __FILE__, __LINE__, retElem.first->first, retElem.first->second, retElem.second);
+                    else
+                       RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Inserted into the eventMap\n", __FILE__, __LINE__);
                     pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, true);
                 }
 
