@@ -38,7 +38,13 @@
 /************ Static / Glocal variable ****************/
 static int    exit_flag;        /* Program termination flag     */
 
-GstElement *pstv4l2src = NULL;
+GstElement *pstcamerasrc = NULL;
+
+typedef enum camerasrc
+{
+    CAMERA_V4L2_SRC = 1,
+    CAMERA_LIBCAMERA_SRC
+}CAMERA_SRC;
 
 typedef struct cvr_gst_rpi
 {
@@ -51,6 +57,8 @@ typedef struct cvr_gst_rpi
 }CVR_GST_RPI;
 
 CVR_GST_RPI stCvrGstRpi = { 0 };
+
+CAMERA_SRC encamerasrc = CAMERA_V4L2_SRC;
 
 /************ Prototype *************/
 
@@ -69,10 +77,20 @@ gboolean on_message(GstBus *bus,GstMessage *message, gpointer userData);
 /* load_default_cvr_gstreamer_value() */
 void load_default_cvr_gstreamer_value()
 {
-    stCvrGstRpi.width = 1280;
-    stCvrGstRpi.height = 720;
+    if( CAMERA_V4L2_SRC == encamerasrc )
+    {
+        stCvrGstRpi.width = 1280;
+        stCvrGstRpi.height = 720;
 
-    stCvrGstRpi.framerate  = 30;
+        stCvrGstRpi.framerate  = 30;
+    }
+    else if( CAMERA_LIBCAMERA_SRC == encamerasrc )
+    {
+        stCvrGstRpi.width = 640;
+        stCvrGstRpi.height = 480;
+
+        stCvrGstRpi.framerate  = 15;
+    }
 
     strcpy( stCvrGstRpi.avideotype, "video/x-raw" );
 }
@@ -89,7 +107,7 @@ static void signal_handler(int sig_num)
     }
     else if( sig_num == 2 )
     {
-        gst_element_send_event(pstv4l2src, gst_event_new_eos());
+        gst_element_send_event(pstcamerasrc, gst_event_new_eos());
 	exit_flag = sig_num;
     }
     else
@@ -112,6 +130,18 @@ int main(int argc, char *argv[])
     (void) signal(SIGTERM, signal_handler);
 
     (void) signal(SIGINT, signal_handler);
+
+    if( NULL != argv[1] )
+    {
+        if( 0 == strcmp( argv[1], "v4l2src") )
+        {
+            encamerasrc = CAMERA_V4L2_SRC;
+        }
+        else if( 0 == strcmp( argv[1], "libcamerasrc") )
+        {
+            encamerasrc = CAMERA_LIBCAMERA_SRC;
+        }
+    }
 
     load_default_cvr_gstreamer_value();
 
@@ -136,7 +166,7 @@ int main(int argc, char *argv[])
 /* {{{ start_stream() */
 void start_stream()
 {
-    GstElement *pipeline,*v4l2src,*filter,*omxh264enc,*h264parse,*kvssink;
+    GstElement *pipeline,*camerasrc,*filter,*h264enc,*h264parse,*kvssink;
     GMainLoop  *loop;
     GstBus     *bus;
     GstCaps    *filtercaps;
@@ -148,17 +178,24 @@ void start_stream()
 
     pipeline = gst_element_factory_make("pipeline","pipeline");
 
-    pstv4l2src = v4l2src = gst_element_factory_make("v4l2src","v4l2src");
+    if( CAMERA_V4L2_SRC == encamerasrc )
+    {
+        pstcamerasrc = camerasrc = gst_element_factory_make("v4l2src","v4l2src");
+    }
+    else if( CAMERA_LIBCAMERA_SRC == encamerasrc )
+    {
+        pstcamerasrc = camerasrc = gst_element_factory_make("libcamerasrc","libcamerasrc");
+    }
 
     filter = gst_element_factory_make("capsfilter","filter");
 
-    omxh264enc = gst_element_factory_make("omxh264enc","omxh264enc");
+    h264enc = gst_element_factory_make("omxh264enc","omxh264enc");
 
     h264parse = gst_element_factory_make("h264parse","h264parse");
 
     kvssink = gst_element_factory_make("kvssink","kvssink");
 
-    if ( !pipeline || !v4l2src || !filter || !omxh264enc || !h264parse || !kvssink)
+    if ( !pipeline || !camerasrc || !filter || !h264enc || !h264parse || !kvssink)
     {
         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.GSTREAMER","%s(%d): Unable to make elements\n", __FILE__, __LINE__);
     }
@@ -169,9 +206,9 @@ void start_stream()
 
     gst_bus_add_watch(bus,(GstBusFunc) on_message, loop);
 
-    gst_bin_add_many(GST_BIN(pipeline),v4l2src,filter,omxh264enc,h264parse,kvssink,NULL);
+    gst_bin_add_many(GST_BIN(pipeline),camerasrc,filter,h264enc,h264parse,kvssink,NULL);
 
-    if ( gst_element_link_many(v4l2src,filter,omxh264enc,h264parse,kvssink,NULL) )
+    if ( gst_element_link_many(camerasrc,filter,h264enc,h264parse,kvssink,NULL) )
     {
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.GSTREAMER","%s(%d):Element linking success for pipeline\n", __FILE__, __LINE__);
 
@@ -181,11 +218,24 @@ void start_stream()
 
     }
 
-    filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
+    if( CAMERA_V4L2_SRC == encamerasrc )
+    {
+        filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
                                       "width", G_TYPE_INT, stCvrGstRpi.width,
                                       "height", G_TYPE_INT, stCvrGstRpi.height,
                                       "framerate", GST_TYPE_FRACTION, stCvrGstRpi.framerate, 1,
                                       NULL);
+    }
+    else if( CAMERA_LIBCAMERA_SRC == encamerasrc )
+    {
+        filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
+                                      "width", G_TYPE_INT, stCvrGstRpi.width,
+                                      "height", G_TYPE_INT, stCvrGstRpi.height,
+                                      "framerate", GST_TYPE_FRACTION, stCvrGstRpi.framerate, 1,
+				      "format", G_TYPE_STRING, "NV12",
+                                      NULL);
+
+    }
 
     g_object_set (G_OBJECT (filter), "caps", filtercaps, NULL);
 
@@ -235,9 +285,9 @@ void start_stream()
 
     gst_element_set_state(filter,GST_STATE_READY);
 
-    gst_element_set_state(omxh264enc,GST_STATE_READY);
+    gst_element_set_state(h264enc,GST_STATE_READY);
 
-    gst_element_set_state(v4l2src,GST_STATE_READY);
+    gst_element_set_state(camerasrc,GST_STATE_READY);
 
 
     gst_element_set_state(kvssink,GST_STATE_NULL);
@@ -246,9 +296,9 @@ void start_stream()
 
     gst_element_set_state(filter,GST_STATE_READY);
 
-    gst_element_set_state(omxh264enc,GST_STATE_NULL);
+    gst_element_set_state(h264enc,GST_STATE_NULL);
 
-    gst_element_set_state(v4l2src,GST_STATE_NULL);
+    gst_element_set_state(camerasrc,GST_STATE_NULL);
 
 
     gst_element_set_state(pipeline,GST_STATE_NULL);
@@ -264,11 +314,11 @@ void start_stream()
 
     }
 
-    gst_element_unlink_many(v4l2src,filter,omxh264enc,h264parse,kvssink,NULL);
+    gst_element_unlink_many(camerasrc,filter,h264enc,h264parse,kvssink,NULL);
 
-    gst_object_ref(v4l2src);
+    gst_object_ref(camerasrc);
 
-    gst_bin_remove_many(GST_BIN(pipeline),kvssink,h264parse,omxh264enc,filter,v4l2src,NULL);
+    gst_bin_remove_many(GST_BIN(pipeline),kvssink,h264parse,h264enc,filter,camerasrc,NULL);
 
     gst_object_unref(pipeline);
 
