@@ -24,6 +24,7 @@ USE_HTTPCLIENT = yes
 USE_GST = yes
 USE_KINESIS_PRODUCER = yes
 USE_CJSON = yes
+USE_SYSUTILS= yes
 
 include ${RDK_PROJECT_ROOT_PATH}/utility/AppsRule.mak
 

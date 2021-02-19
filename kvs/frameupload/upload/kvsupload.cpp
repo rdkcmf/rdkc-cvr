@@ -51,6 +51,7 @@ extern "C" {
 #endif
 
 #include "event_config.h"
+#include "sysUtils.h"
 
 long compute_stats();
 
@@ -597,6 +598,53 @@ STATUS SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler(UINT6
 
 unique_ptr<Credentials> credentials_;
 
+
+//Api to set kvs tags
+static void setKVSTags(std::map<string, string> &tagsmap) {
+  char fw_name[FW_NAME_MAX_LENGTH] = {0};
+  char device_mac[CAM_MAC_MAX_LENGTH] = {0};
+  char version_num[VER_NUM_MAX_LENGTH] = {0};
+  char tag_name[MAX_TAG_NAME_LEN] = {0};
+  char tag_val[MAX_TAG_VALUE_LEN] = {0};
+
+  //Retrieve the Firmware version
+  if (getCameraFirmwareVersion(fw_name) != 0) {
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera firmware version\n", __FILE__, __LINE__);
+  }
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): The firmware image is %s\n", __FILE__, __LINE__, fw_name);
+
+  //update tag with firmware name
+  sprintf(tag_name, "RDKC_FIRMWARE");
+  sprintf(tag_val, "%s", fw_name);
+  tagsmap.emplace(std::make_pair(tag_name, tag_val));
+
+  //Retrieve the Device MAC
+  if (getDeviceMacValue(device_mac) != 0) {
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera MAC\n", __FILE__, __LINE__);
+  }
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): The device MAC is %s\n", __FILE__, __LINE__, device_mac);
+
+  //update tag with mac address
+  memset(tag_name, 0, MAX_TAG_NAME_LEN);
+  memset(tag_val, 0, MAX_TAG_NAME_LEN);
+  sprintf(tag_name, "RDKC_MAC");
+  sprintf(tag_val, "%s", device_mac);
+  tagsmap.emplace(std::make_pair(tag_name, tag_val));
+
+  //Retrieve the Version Number
+  if (getCameraVersionNum(version_num) != 0) {
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera image version number\n", __FILE__, __LINE__);
+  }
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): The device image version number is %s\n", __FILE__, __LINE__, version_num);
+
+  //update tag with mac address
+  memset(tag_name, 0, MAX_TAG_NAME_LEN);
+  memset(tag_val, 0, MAX_TAG_NAME_LEN);
+  sprintf(tag_name, "RDKC_VERSION");
+  sprintf(tag_val, "%s", version_num);
+  tagsmap.emplace(std::make_pair(tag_name, tag_val));
+}
+
 //kinesis producer init
 static void kinesisVideoInit(CustomData *data)
 {
@@ -661,7 +709,7 @@ static void kinesisVideoInit(CustomData *data)
                 "",
                 "",
                 "",
-                DEFAULT_CACHE_TIME_IN_SECONDS);
+                std::chrono::seconds(DEFAULT_CACHE_TIME_IN_SECONDS));
 
     data->kinesis_video_producer = KinesisVideoProducer::createSync(move(device_info_provider),
             move(cachingEndpointOnlyCallbackProvider));
@@ -673,6 +721,8 @@ static void kinesisVideoInit(CustomData *data)
 static void kinesisVideoStreamInit(CustomData *data)
 {
 	string content_type;
+        std::map<string, string> tags;
+
 	if ( data->gkvsclip_audio )
 	{
 		content_type = "video/h264,audio/aac";
@@ -683,10 +733,14 @@ static void kinesisVideoStreamInit(CustomData *data)
 	}
 	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): content_type = %s\n", __FILE__, __LINE__, content_type.c_str());
 
+	setKVSTags(tags);
+        for ( auto& x: tags) {
+	        RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","tag tagname - %s tagvalue - %s\n", x.first.c_str(),x.second.c_str());
+        }
 
 	auto stream_definition = make_unique<StreamDefinition>(data->stream_name,
 			hours(DEFAULT_RETENTION_PERIOD_HOURS),
-			nullptr,
+			&tags,
 			DEFAULT_KMS_KEY_ID,
 			STREAMING_TYPE_REALTIME, 
 			content_type,
@@ -785,6 +839,27 @@ static bool recreate_stream(CustomData *data)
 	} while(do_repeat);
     
         return true;
+}
+
+//reset stream
+static void reset_stream(CustomData *data) {
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Attempt to reset kinesis video stream \n", __FILE__, __LINE__);
+  bool do_repeat = true;
+  int retry=0;
+  do {
+      try {
+        data->kinesis_video_stream->resetStream();
+        do_repeat = false;
+      } catch (runtime_error &err) {
+        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : Failed to reset kinesis video stream : retrying \n", __FILE__, __LINE__);
+        this_thread::sleep_for(std::chrono::seconds(2));
+        retry++;
+        if ( retry > KVSINITMAXRETRY ) {
+          RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in reset stream exit process %d\n", __FILE__, __LINE__);
+          exit(1);
+        }
+      }
+  } while(do_repeat);
 }
 
 static void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nanoseconds &dts, FRAME_FLAGS flags,
@@ -894,7 +969,7 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highme
         }
         catch (runtime_error &err)
         {
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Time out error in kinesisVideoStreamInit connection_error \n", __FILE__, __LINE__);
+            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Time out error in kinesisVideoStreamInit \n", __FILE__, __LINE__);
             ret = recreate_stream(&data);
         }
     }
