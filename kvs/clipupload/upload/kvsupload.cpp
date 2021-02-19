@@ -59,8 +59,8 @@ using namespace log4cplus;
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-long compute_stats();
+#include "sysUtils.h"
+//long compute_stats();
 
 #ifdef __cplusplus
 }
@@ -542,7 +542,7 @@ static void kinesis_video_init(CustomData *data) {
           "",
           "",
           "",
-          DEFAULT_CACHE_TIME_IN_SECONDS);
+          std::chrono::seconds(DEFAULT_CACHE_TIME_IN_SECONDS));
  
   data->kinesis_video_producer = KinesisVideoProducer::createSync(move(device_info_provider),
                                                                       move(cachingEndpointOnlyCallbackProvider));
@@ -556,10 +556,58 @@ static void kinesis_video_init(CustomData *data) {
   LOG_INFO("Kinesis Video Streams Client is ready");
 }
 
+//Api to set kvs tags
+static void setKVSTags(std::map<string, string> &tagsmap) {
+  char fw_name[FW_NAME_MAX_LENGTH] = {0};
+  char device_mac[CAM_MAC_MAX_LENGTH] = {0};
+  char version_num[VER_NUM_MAX_LENGTH] = {0};
+  char tag_name[MAX_TAG_NAME_LEN] = {0};
+  char tag_val[MAX_TAG_VALUE_LEN] = {0};
+
+  //Retrieve the Firmware version
+  if (getCameraFirmwareVersion(fw_name) != 0) {
+     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera firmware version\n", __FILE__, __LINE__);
+  }
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): The firmware image is %s\n", __FILE__, __LINE__, fw_name);
+
+  //update tag with firmware name
+  sprintf(tag_name, "RDKC_FIRMWARE");
+  sprintf(tag_val, "%s", fw_name);
+  tagsmap.emplace(std::make_pair(tag_name, tag_val));
+
+  //Retrieve the Device MAC
+  if (getDeviceMacValue(device_mac) != 0) {
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera MAC\n", __FILE__, __LINE__);
+  }
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): The device MAC is %s\n", __FILE__, __LINE__, device_mac);
+
+  //update tag with mac address
+  memset(tag_name, 0, MAX_TAG_NAME_LEN);
+  memset(tag_val, 0, MAX_TAG_NAME_LEN);
+  sprintf(tag_name, "RDKC_MAC");
+  sprintf(tag_val, "%s", device_mac);
+  tagsmap.emplace(std::make_pair(tag_name, tag_val));
+
+  //Retrieve the Version Number
+  if (getCameraVersionNum(version_num) != 0) {
+    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d): ERROR in reading camera image version number\n", __FILE__, __LINE__);
+  }
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): The device image version number is %s\n", __FILE__, __LINE__, version_num);
+
+  //update tag with mac address
+  memset(tag_name, 0, MAX_TAG_NAME_LEN);
+  memset(tag_val, 0, MAX_TAG_NAME_LEN);
+  sprintf(tag_name, "RDKC_VERSION");
+  sprintf(tag_val, "%s", version_num);
+  tagsmap.emplace(std::make_pair(tag_name, tag_val));
+}
+
 //kinesis stream init
 static void kinesis_video_stream_init(CustomData *data) {
 
   bool use_absolute_fragment_times = DEFAULT_ABSOLUTE_FRAGMENT_TIMES;
+  std::map<string, string> tags;
+
   if ( ! data->gkvsclip_livemode ) { 
     data->streaming_type = STREAMING_TYPE_OFFLINE;
     use_absolute_fragment_times = true;
@@ -575,10 +623,13 @@ static void kinesis_video_stream_init(CustomData *data) {
     content_type = "video/h264";
   }
 
-
+  setKVSTags(tags);
+  for ( auto& x: tags) {
+	  RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","tag tagname - %s tagvalue - %s\n", x.first.c_str(),x.second.c_str());
+  }
   auto stream_definition = make_unique<StreamDefinition>(data->stream_name,
                                                           hours(DEFAULT_RETENTION_PERIOD_HOURS),
-                                                          nullptr,
+                                                          &tags,
                                                           DEFAULT_KMS_KEY_ID,
                                                           data->streaming_type,
                                                           content_type,
@@ -680,6 +731,34 @@ static void recreate_stream(CustomData *data, uint64_t& hangdetecttime) {
         retry++;
         if ( retry > KVSINITMAXRETRY ) {
           RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in recreate_stream exit process %d\n", __FILE__, __LINE__);
+          exit(1);
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lk(custom_data_mtx);
+        data->connection_error = false;
+      }
+  } while(do_repeat);
+}
+
+//reset stream
+static void reset_stream(CustomData *data, uint64_t& hangdetecttime) {
+  RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Attempt to reset kinesis video stream \n", __FILE__, __LINE__);
+  hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  bool do_repeat = true;
+  int retry=0;
+  do {
+      try {
+        data->kinesis_video_stream->stopSync();
+        hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        data->kinesis_video_stream->resetStream();
+        do_repeat = false;
+      } catch (runtime_error &err) {
+        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : Failed to reset kinesis video stream : retrying \n", __FILE__, __LINE__);
+        this_thread::sleep_for(std::chrono::seconds(2));
+        retry++;
+        if ( retry > KVSINITMAXRETRY ) {
+          RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in reset stream exit process %d\n", __FILE__, __LINE__);
           exit(1);
         }
       }
@@ -1935,6 +2014,7 @@ int kvs_stream_play( char *clip, unsigned short& clip_audio, unsigned short& cli
 
     //recreate stream in error cases
     recreate_stream(&data,hangdetecttime);
+    //reset_stream(&data,hangdetecttime);  //TBD
   
     //LOG_INFO("=======================Main_Loop_Finish_ConnError_KvsReInit=========================Memory stats (KB) " << compute_stats() ) ;
     //RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): stream was recreated for clip %s memory stats %ld\n", __FILE__, __LINE__, data.clip_name, compute_stats() );
