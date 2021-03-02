@@ -1322,7 +1322,6 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
         else if (1 == ret_kvs)
         {
             iskvsStreamInitDone = false;
-            cvr_upload_retry	= true;
             contentchangestatus = 1;
             if (false == iskvsStreamInitDone)
             {
@@ -1667,7 +1666,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 if(contentchangestatus == 1)
                 {
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): contentStatus changed\n", __FILE__, __LINE__);
-                    contentchangestatus = 0;
                     break;
                 }
                 if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
@@ -1761,7 +1759,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     if(contentchangestatus == 1)
                     {
                         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): contentStatus changed\n", __FILE__, __LINE__);
-                        contentchangestatus = 0;
                         break;
                     }
                     if (IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
@@ -1823,6 +1820,15 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     }
                 }
             }
+        }
+
+        if(contentchangestatus == 1)
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): resetting contentStatus\n", __FILE__, __LINE__);
+            contentchangestatus=0;
+            //to mark the end of the clip
+            pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, true);
+            continue;
         }
 
         //caculate the last second of  clip

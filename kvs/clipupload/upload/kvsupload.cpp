@@ -91,7 +91,7 @@ LOGGER_TAG("com.amazonaws.kinesis.video.gstreamer");
 #define DEFAULT_FRAME_TIMECODES TRUE
 #define DEFAULT_ABSOLUTE_FRAGMENT_TIMES FALSE
 #define DEFAULT_FRAGMENT_ACKS TRUE
-#define DEFAULT_RESTART_ON_ERROR FALSE
+#define DEFAULT_RESTART_ON_ERROR TRUE
 #define DEFAULT_RECALCULATE_METRICS TRUE
 #define DEFAULT_STREAM_FRAMERATE 25
 #define DEFAULT_AVG_BANDWIDTH_BPS (4 * 1024 * 1024)
@@ -367,6 +367,9 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
     if (data.storageMem != 0 && data.storageMem >= STORAGE_SIZE_STREAM2 && data.storageMem <= MAX_STORAGE_SIZE_STREAM) {
         device_info.storageInfo.storageSize = data.storageMem;
     }
+    device_info.clientInfo.stopStreamTimeout = 30 * HUNDREDS_OF_NANOS_IN_A_SECOND;
+    device_info.clientInfo.createClientTimeout = 30 * HUNDREDS_OF_NANOS_IN_A_SECOND;
+    device_info.clientInfo.createStreamTimeout = 30 * HUNDREDS_OF_NANOS_IN_A_SECOND;
 
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : streamID : %d : storage size : %llu\n", __FILE__, __LINE__,m_stream_id, device_info.storageInfo.storageSize);
 
