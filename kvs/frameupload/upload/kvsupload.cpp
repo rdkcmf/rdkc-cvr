@@ -64,14 +64,11 @@ LOGGER_TAG("com.amazonaws.kinesis.video.frameupload");
 #define DEFAULT_REGION_ENV_VAR "AWS_DEFAULT_REGION"
 #define KVS_LOG_CONFIG_ENV_VER "KVS_LOG_CONFIG"
 #define KVSINITMAXRETRY 5
-#define MAX(a,b)        (((a) > (b)) ? (a) : (b))
 
 //Kinesis Video Stream definitions
 #define DEFAULT_FRAME_DATA_SIZE_BYTE (1024*1024)
 #define DEFAULT_RETENTION_PERIOD_HOURS 2
 #define DEFAULT_KMS_KEY_ID ""
-#define DEFAULT_STREAMING_TYPE STREAMING_TYPE_OFFLINE
-#define DEFAULT_CONTENT_TYPE "video/h264,audio/aac"
 #define DEFAULT_MAX_LATENCY_SECONDS 30
 #ifdef XCAM2
 #define DEFAULT_FRAGMENT_DURATION_MILLISECONDS 15500
@@ -83,9 +80,8 @@ int time_difference = 15000;
 #define DEFAULT_TIMECODE_SCALE_MILLISECONDS 1
 #define DEFAULT_KEY_FRAME_FRAGMENTATION TRUE
 #define DEFAULT_FRAME_TIMECODES TRUE
-#define DEFAULT_ABSOLUTE_FRAGMENT_TIMES FALSE
 #define DEFAULT_FRAGMENT_ACKS TRUE
-#define DEFAULT_RESTART_ON_ERROR FALSE
+#define DEFAULT_RESTART_ON_ERROR TRUE
 #define DEFAULT_RECALCULATE_METRICS TRUE
 #define DEFAULT_STREAM_FRAMERATE 25
 #define DEFAULT_AVG_BANDWIDTH_BPS (4 * 1024 * 1024)
@@ -101,22 +97,16 @@ int time_difference = 15000;
 #define MAX_STORAGE_SIZE_STREAM (10 * 1024 * 1024)
 #define DEFAULT_ROTATION_TIME_SECONDS 2400
 #define DEFAULT_VIDEO_TRACKID 1
-#define DEFAULT_FRAME_DURATION_MS 1
-
-#define DEFAULT_AUDIO_VIDEO_DRIFT_TIMEOUT_SECOND 5
-
 #define DEFAULT_AUDIO_TRACK_NAME "audio"
 #define DEFAULT_AUDIO_CODEC_ID "A_AAC"
 #define DEFAULT_AUDIO_TRACKID 2
-#define DEFAULT_CODECID_H264VIDEO_CAM_STREAM3  "014d001fffe1002d674d001f9a6402802dff80b5010101400000fa000013883a1800b720002dc72ef2e3430016e40005b8e5de5c2801000468ee3c80"
-#define DEFAULT_CODECID_H264VIDEO_CAM2_STREAM1 "014d401fffe1002e674d401f8d8d402802dff80b7010101400000fa000013883a1802490000d59faef2e343004920001ab3f5de5c28001000468ef7c80"
-#define DEFAULT_CODECID_H264VIDEO_CAM2_STREAM3 "014d401fffe1002e674d401f8d8d402802dff80b7010101400000fa000013883a1802490000d59faef2e343004920001ab3f5de5c28001000468ee3880"
 #define DEFAULT_CODECID_AACAUDIO "1588"
 #define DEFAULT_CACHE_TIME_IN_SECONDS 86400 //24*3600 ~ 1 day
 #define CVR_THRESHHOLD_COUNT_IN_MILLISECONDS  60000 //15sec*4 ~ 60 sec
 #define AAC_HEADER_LENGTH 7
 #define CVR_THRESHHOLD_FRAMEDROP_AUDIOVIDEO 1000
 #define CVR_THRESHHOLD_FRAMEDROP_VIDEO 600
+#define CVR_STATUS_FILE "/tmp/.cvr_status"
 
 /*Global variables - TBD - convert to private */
 kvsUploadCallback* callbackObj;
@@ -124,33 +114,25 @@ static map<uint64_t, std::string> clipmapwithtimecode;
 static deque<std::string> queueclipName;
 static bool isstreamerror_reported = false;
 typedef std::chrono::milliseconds ms;
-typedef std::chrono::duration<float> fsec;
 /************************************************* common api's start*****************************************/
 namespace com { namespace amazonaws { namespace kinesis { namespace video {
 typedef struct _CustomData {
   _CustomData():
     first_frame(true),
     stream_started(false),
-    h264_stream_supported(false),
     kinesis_video_producer(nullptr),
-    frame_data_size(DEFAULT_FRAME_DATA_SIZE_BYTE),
-    stream_in_progress(false),
     gkvsclip_audio(0),
     kinesis_video_stream(nullptr),
     //audio related params
-    total_track_count(1),
     storageMem(0),
     cvr_stream_id(3) {}
-
   //kvs components
   unique_ptr<KinesisVideoProducer> kinesis_video_producer;
   shared_ptr<KinesisVideoStream> kinesis_video_stream;
   char stream_name[ MAX_STREAM_NAME_LEN ];
   char clip_name[ MAX_STREAM_NAME_LEN ];
-  volatile bool stream_in_progress;
 
   uint8_t *frame_data;
-  size_t frame_data_size;
   // indicate whether a video key frame has been received or not.
   volatile bool first_frame;
 
@@ -178,10 +160,7 @@ typedef struct _CustomData {
   // key:     trackId
   // value:   whether application has received the first frame for trackId.
   bool stream_started;
-  bool h264_stream_supported;
-  uint32_t total_track_count;
   int cvr_stream_id;
-
 } CustomData;
 
 CustomData data = {};
@@ -331,6 +310,9 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
     if (data.storageMem != 0 && data.storageMem >= MIN_STORGE_SIZE && data.storageMem <= MAX_STORAGE_SIZE_STREAM) {
         device_info.storageInfo.storageSize = data.storageMem;
     }
+    device_info.clientInfo.stopStreamTimeout = 30 * HUNDREDS_OF_NANOS_IN_A_SECOND;
+    device_info.clientInfo.createClientTimeout = 30 * HUNDREDS_OF_NANOS_IN_A_SECOND;
+    device_info.clientInfo.createStreamTimeout = 30 * HUNDREDS_OF_NANOS_IN_A_SECOND;
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): SampleDeviceInfoProvider : storage size : %llu \n", __FILE__, __LINE__, device_info.storageInfo.storageSize);
 
     return device_info;
@@ -363,6 +345,7 @@ STATUS SampleStreamCallbackProvider::streamUnderflowReportHandler(UINT64 custom_
 	static int underFlowCount=0;
 	if( (underFlowCount % 10) == 0 ) {
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): SampleStreamCallbackProvider::streamUnderflowReportHandler\n", __FILE__, __LINE__);
+                underFlowCount=0;
 	}
 	underFlowCount++;
 	RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): SampleStreamCallbackProvider::streamUnderflowReportHandler - Exit\n", __FILE__, __LINE__);
@@ -377,10 +360,11 @@ STATUS SampleStreamCallbackProvider::streamLatencyPressureHandler(UINT64 custom_
 	static int latencyPressureCount=0;
 	if( (latencyPressureCount % 10) == 0 ) {
 		LOG_ERROR("SampleStreamCallbackProvider::streamLatencyPressureHandler : buffer_duration - " << buffer_duration);
+                latencyPressureCount=0;
 	}
 	latencyPressureCount++;
 	RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): SampleStreamCallbackProvider::streamLatencyPressureHandler - Exit\n", __FILE__, __LINE__);
-    return STATUS_SUCCESS;
+        return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::droppedFrameReportHandler(UINT64 custom_data, STREAM_HANDLE stream_handle,
@@ -394,6 +378,7 @@ STATUS SampleStreamCallbackProvider::droppedFrameReportHandler(UINT64 custom_dat
 		if( (droppedFrameReportHandlerCount % 10) == 0 )
 		{
 			LOG_ERROR("SampleStreamCallbackProvider::droppedFrameReportHandler : dropped_frame_timecode : " << dropped_frame_timecode);
+                        droppedFrameReportHandlerCount=0;
 		}
 		droppedFrameReportHandlerCount++;
 	}
@@ -408,16 +393,22 @@ STATUS SampleStreamCallbackProvider::streamConnectionStaleHandler(UINT64 custom_
 	static int connectionStaleCount =0;
 	if( (connectionStaleCount % 10) == 0 ) {
 		LOG_ERROR("SampleStreamCallbackProvider::streamConnectionStaleHandler : last_ack_duration : " << last_ack_duration);
+                connectionStaleCount=0;
 	}
 	connectionStaleCount++;
 	RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): SampleStreamCallbackProvider::streamConnectionStaleHandler - Exit \n", __FILE__, __LINE__);
-    return STATUS_SUCCESS;
+        return STATUS_SUCCESS;
 }
 
 STATUS SampleStreamCallbackProvider::droppedFragmentReportHandler(UINT64 custom_data,
                                                              STREAM_HANDLE stream_handle,
                                                              UINT64 timecode) {
-    LOG_ERROR("SampleStreamCallbackProvider::droppedFragmentReportHandler : fragment_timecode : " << timecode);
+    static int droppedFrameCount=0;
+    if( (droppedFrameCount % 10) == 0 ) {
+        LOG_ERROR("SampleStreamCallbackProvider::droppedFragmentReportHandler : fragment_timecode : " << timecode);
+        droppedFrameCount=0;
+    }
+    droppedFrameCount++;
     return STATUS_SUCCESS;
 }
 
@@ -466,8 +457,8 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 {
     RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): SampleStreamCallbackProvider::FragmentAckReceivedHandler - Enter \n", __FILE__, __LINE__ );
 	CustomData *customDataObj = reinterpret_cast<CustomData *>(custom_data);
-	static uint64_t clipcount = 0;
-	static uint64_t clipuploadtime = 0;
+	static uint64_t totalclipcount = 0;
+	static uint64_t totalclipuploadtime = 0;
 
 	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Reporting fragment ACK received. Fragment timecode %llu\n", pFragmentAck->timestamp );
 	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Reporting fragment ACK received. Fragment type %d\n", pFragmentAck->ackType );
@@ -501,16 +492,23 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 
 	if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_PERSISTED)
 	{
-		clipcount++;
-		std::ofstream ofile;
- 		ofile.open("/tmp/.cvr_status", std::ios_base::trunc);
- 		ofile << clipcount << endl;
-		ofile.close();
-		std::chrono::system_clock::time_point time_now = std::chrono::system_clock::now();
+		totalclipcount++;
+                std::chrono::system_clock::time_point time_now = std::chrono::system_clock::now();
 		data.lastclippersisted_time = time_now;
+
+                //log current epoch time in file
+                std::ofstream ofs(CVR_STATUS_FILE,std::ios::out | std::ios::binary);
+                if (!ofs.is_open()) {
+                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d):  Error in opening persisted update file\n");
+                } else {
+                    ofs << std::chrono::system_clock::to_time_t(time_now);
+                    ofs.close();
+                }
+
+                // Update only the expiration
 		ms time_diff = std::chrono::duration_cast<ms>(time_now - customDataObj->clip_senttokvssdk_time);
-		clipuploadtime+=time_diff.count();
-		uint64_t avgtime_clipupload = clipuploadtime/clipcount ;
+		totalclipuploadtime+=time_diff.count();
+		uint64_t avgtime_clipupload = totalclipuploadtime/totalclipcount ;
 
 		std::map<uint64_t, std::string>::iterator it;
 		it = clipmapwithtimecode.find(pFragmentAck->timestamp);
@@ -522,7 +520,7 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
 					__FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff.count());
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload persisted time and clip sent time :%llu,%llu \n",__FILE__, __LINE__,std::chrono::duration_cast<std::chrono::milliseconds>(data.lastclippersisted_time.time_since_epoch()).count(), std::chrono::duration_cast<std::chrono::milliseconds>(customDataObj->clip_senttokvssdk_time.time_since_epoch()).count());
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats :%lld,%lld \n",__FILE__, __LINE__,avgtime_clipupload,clipcount);
+			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats :%lld,%lld \n",__FILE__, __LINE__,avgtime_clipupload,totalclipcount);
 
 			callbackObj->onUploadSuccess(persistedclip.c_str());
 			//remove the item found above, as it is already notified.
@@ -542,7 +540,7 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
 					__FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff.count());
 			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload persisted time and clip sent time :%llu,%llu \n",__FILE__, __LINE__,std::chrono::duration_cast<std::chrono::milliseconds>(data.lastclippersisted_time.time_since_epoch()).count(), std::chrono::duration_cast<std::chrono::milliseconds>(customDataObj->clip_senttokvssdk_time.time_since_epoch()).count());
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats :%lld,%lld \n",__FILE__, __LINE__,avgtime_clipupload,clipcount);
+			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats :%lld,%lld \n",__FILE__, __LINE__,avgtime_clipupload,totalclipcount);
 
 			callbackObj->onUploadSuccess(persistedclip.c_str());
 		}
@@ -585,7 +583,12 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 STATUS SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler(UINT64 custom_data,
                                                                       STREAM_HANDLE stream_handle,
                                                                       UINT64 remaining_duration) {
-    LOG_ERROR("SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler invoked : remaining_duration : " <<  remaining_duration);
+    static int bufferdurationOverflowCount=0;
+    if( (bufferdurationOverflowCount % 10) == 0 ) {
+        LOG_ERROR("SampleStreamCallbackProvider::bufferDurationOverflowPressureHandler invoked : remaining_duration : " <<  remaining_duration);
+        bufferdurationOverflowCount=0;
+    }
+    bufferdurationOverflowCount++;
     return STATUS_SUCCESS;
 }
 
@@ -777,7 +780,6 @@ static void kinesisVideoStreamInit(CustomData *data)
 	{
 		LOG_INFO("Kinesis video stream init video case");
 		data->kinesis_video_stream = data->kinesis_video_producer->createStreamSync(move(stream_definition));
-		data->stream_in_progress = false;
 	}
 
 	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Stream %s is ready\n", __FILE__, __LINE__, data->stream_name );
@@ -949,15 +951,6 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highme
     data.gkvsclip_highmem = kvsclip_highmem;
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): audio=%d, kvsclip_highmem =%d\n", __FILE__, __LINE__, kvsclip_audio,kvsclip_highmem);
 
-    if(data.gkvsclip_audio)
-    {
-        data.total_track_count = 2;
-    }
-    else
-    {
-        data.total_track_count = 1;
-    }
-
     //In normal case init then recreate
     if( 0 == contentchangestatus )
     {
@@ -997,32 +990,31 @@ int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem,
     //Check if the clip content has changed - videoaudioclip -> videoclip / videoclip -> videoaudioclip
     if( data.gkvsclip_audio != clipaudioflag)
     {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Recreating stream : prior audio enable flag : %d , current audio enable flag : %d\n", __FILE__, __LINE__, data.gkvsclip_audio, clipaudioflag);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : prior audio enable flag : %d , current audio enable flag : %d\n", __FILE__, __LINE__, data.gkvsclip_audio, clipaudioflag);
         return 1;
     }
     if( data.gkvsclip_highmem != cliphighmem )
     {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Recreating stream : highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d\n", __FILE__, __LINE__, data.gkvsclip_highmem,cliphighmem); 
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d\n", __FILE__, __LINE__, data.gkvsclip_highmem,cliphighmem);
         return 1;
     }
     if( isstreamerror_reported )
     {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, isstreamerror_reported);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, isstreamerror_reported);
         isstreamerror_reported = false;
         return 1;
     }
     if( frame_dropped_flag )
     {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Recreating stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
         frame_dropped_flag = 0;
         frame_dropped_count = 0;
+        //reset_stream(&data); //TBD
         return 1;
     }
 
     int retstatus=0;
     size_t buffer_size = frameData.frame_size;
-    //update timestamp
-    data.h264_stream_supported = true;
     if (!data.stream_started)
     {
         if(clipaudioflag)
@@ -1067,9 +1059,11 @@ int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem,
         ms cliptime_diff = std::chrono::duration_cast<ms>(data.clip_senttokvssdk_time - data.lastclippersisted_time);
         if( cliptime_diff.count() > CVR_THRESHHOLD_COUNT_IN_MILLISECONDS ) {
             //to maintain 60 seconds send/ack time gap and to avoid if the second clip's ack is delayed than sending
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to get clip upload status - Timeout : %lld : Exiting application \n", __FUNCTION__, __LINE__, cliptime_diff.count());
-            kinesisVideoStreamUninitSync(&data);
-            return 2;
+            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to get clip upload status - Timeout : %lld : attempt to recreate stream \n", __FUNCTION__, __LINE__, cliptime_diff.count());
+            //In poor network condition hang seen with kinesisVideoStreamUninitSync api
+            //kinesisVideoStreamUninitSync(&data);
+            //reset_stream(&data); //TBD
+            return 1;
         }
         data.clip_senttokvssdk_time = std::chrono::system_clock::now();
     } else {

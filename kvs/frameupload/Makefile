@@ -34,7 +34,6 @@ CFLAGS +=-DOSI
 else
 SUPPORT_MXML = yes
 USE_STREAMUTILS = yes
-USE_GST = yes
 endif
 
 ifeq ($(XCAM_MODEL), SCHC2)
@@ -68,14 +67,14 @@ ifeq ($(XCAM_MODEL), SCHC2)
 CFLAGS +=-DXCAM2
 endif
 
-#GST_CVR
+#FRAME_CVR
 INSTALL = install
 RM = rm
 ifeq ($(XCAM_MODEL), XHB1)
 CFLAGS +=-DXHB1
-SRC  += upload/kvsupload.cpp upload/memorystats.cpp core/osi_cvr_daemon.cpp
+SRC  += upload/kvsupload.cpp core/osi_cvr_daemon.cpp
 else
-SRC  += upload/kvsupload.cpp upload/memorystats.cpp core/cvr_daemon.cpp
+SRC  += upload/kvsupload.cpp core/cvr_daemon.cpp
 endif
 OBJ = $(SRC:.cpp=.o)
 
