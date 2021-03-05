@@ -1062,7 +1062,7 @@ int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInf
 #endif
 
         // Check camera has polling cvr config from server?
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Wait for xfinity polling config done.Timeout is %d seconds.\n", __FILE__, __LINE__, check_polling_config_timeout);
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Wait for xfinity polling config done.Timeout is %d seconds.\n", __FILE__, __LINE__, check_polling_config_timeout);
         while (check_polling_config_timeout > 0 && !term_flag)
         {
                 if (0 == access(XFINITY_POLLING_SEQ_FILE, F_OK))
