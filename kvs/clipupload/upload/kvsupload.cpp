@@ -55,6 +55,7 @@
 using namespace std;
 using namespace com::amazonaws::kinesis::video;
 using namespace log4cplus;
+using namespace std::chrono;
 
 #ifdef __cplusplus
 extern "C" {
@@ -745,32 +746,37 @@ static void recreate_stream(CustomData *data, uint64_t& hangdetecttime) {
 }
 
 //reset stream
-static void reset_stream(CustomData *data, uint64_t& hangdetecttime) {
+static bool reset_stream(CustomData *data, uint64_t& hangdetecttime) {
   RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Attempt to reset kinesis video stream \n", __FILE__, __LINE__);
-  hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   bool do_repeat = true;
+  bool status =  false;
   int retry=0;
   do {
-      try {
-        data->kinesis_video_stream->stopSync();
-        hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        data->kinesis_video_stream->resetStream();
+    hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    status = data->kinesis_video_stream->resetStream();
+    hangdetecttime = chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if (true == status) {
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Sucess in resetting the stream\n", __FILE__, __LINE__);
         do_repeat = false;
-      } catch (runtime_error &err) {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : Failed to reset kinesis video stream : retrying \n", __FILE__, __LINE__);
-        this_thread::sleep_for(std::chrono::seconds(2));
+        break;
+    } else {
+        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : Failed to reset kinesis video stream : retrying \n", __FILE__, __LINE__);
+		    this_thread::sleep_for(std::chrono::seconds(2));
         retry++;
-        if ( retry > KVSINITMAXRETRY ) {
-          RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in reset stream exit process %d\n", __FILE__, __LINE__);
-          exit(1);
+        if ( retry > KVSINITMAXRETRY )
+        {
+            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in reset stream\n", __FILE__, __LINE__);
+            return false;
         }
-      }
-      {
-        std::lock_guard<std::mutex> lk(custom_data_mtx);
-        data->connection_error = false;
-      }
+    }
   } while(do_repeat);
+  {
+    std::lock_guard<std::mutex> lk(custom_data_mtx);
+    data->connection_error = false;
+  }
+  return true;
 }
+
 /************************************************* common api's end*****************************************/
 
 /************************************************* video api's start ***************************************/
@@ -2014,14 +2020,16 @@ int kvs_stream_play( char *clip, unsigned short& clip_audio, unsigned short& cli
   #endif
   
     LOG_INFO(" KVS : Data upload failed");
-
-    //recreate stream in error cases
-    recreate_stream(&data,hangdetecttime);
-    //reset_stream(&data,hangdetecttime);  //TBD
+    //recreate_stream(&data,hangdetecttime);
+    bool status = reset_stream(&data,hangdetecttime);
+    if ( false == status ) {
+      RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in resetting stream : stream recreation will happen\n", __FILE__, __LINE__);
+      recreate_stream(&data,hangdetecttime);
+    }
   
     //LOG_INFO("=======================Main_Loop_Finish_ConnError_KvsReInit=========================Memory stats (KB) " << compute_stats() ) ;
     //RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): stream was recreated for clip %s memory stats %ld\n", __FILE__, __LINE__, data.clip_name, compute_stats() );
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): stream was recreated for clip %s\n", __FILE__, __LINE__, data.clip_name);
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): stream was reset for clip %s\n", __FILE__, __LINE__, data.clip_name);
     {
       std::lock_guard<std::mutex> lk(custom_data_mtx);
       connection_error = data.connection_error;

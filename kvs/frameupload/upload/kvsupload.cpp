@@ -44,6 +44,7 @@
 using namespace std;
 using namespace com::amazonaws::kinesis::video;
 using namespace log4cplus;
+using namespace std::chrono;
 
 #ifdef __cplusplus
 extern "C" {
@@ -817,55 +818,59 @@ void kinesisVideoStreamUninitSync(CustomData *data)
 //recreate stream
 static bool recreate_stream(CustomData *data)
 {
-	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : Attempt to recreate kinesis video stream \n", __FILE__, __LINE__);
-	kinesisVideoStreamUninit(data);
-	//sleep required between free stream and recreate stream to avoid crash
-	bool do_repeat = true;
-	int retry=0;
-	do
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : Attempt to recreate kinesis video stream \n", __FILE__, __LINE__);
+    kinesisVideoStreamUninit(data);
+    //sleep required between free stream and recreate stream to avoid crash
+    bool do_repeat = true;
+    int retry=0;
+    do
+    {
+        try
 	{
-		try
+		kinesisVideoStreamInit(data);
+		do_repeat = false;
+	}
+	catch (runtime_error &err)
+	{
+		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : Failed to create kinesis video stream : retrying \n", __FILE__, __LINE__);
+		this_thread::sleep_for(std::chrono::seconds(2));
+		retry++;
+		if ( retry > KVSINITMAXRETRY )
 		{
-			kinesisVideoStreamInit(data);
-			do_repeat = false;
+			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in recreate_stream \n", __FILE__, __LINE__);
+			return false;
 		}
-		catch (runtime_error &err)
-		{
-			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : Failed to create kinesis video stream : retrying \n", __FILE__, __LINE__);
-			this_thread::sleep_for(std::chrono::seconds(2));
-			retry++;
-			if ( retry > KVSINITMAXRETRY )
-			{
-				RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in recreate_stream exit process %d\n", __FILE__, __LINE__);
-				return false;
-			}
-		}
-	} while(do_repeat);
+	}
+    } while(do_repeat);
 
-        //update persisted time in case of recreate stream
-        std::chrono::system_clock::time_point time_now = std::chrono::system_clock::now();
-        data->lastclippersisted_time = time_now;
-        return true;
+    //update persisted time in case of recreate stream
+    std::chrono::system_clock::time_point time_now = std::chrono::system_clock::now();
+    data->lastclippersisted_time = time_now;
+    return true;
 }
 
 //reset stream
-static void reset_stream(CustomData *data) {
+static bool reset_stream(CustomData *data) {
   RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Attempt to reset kinesis video stream \n", __FILE__, __LINE__);
   bool do_repeat = true;
+  bool status =  false;
   int retry=0;
   do {
-      try {
-        data->kinesis_video_stream->resetStream();
+    status = data->kinesis_video_stream->resetStream();
+    if (true == status) {
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Sucess in resetting the stream\n", __FILE__, __LINE__);
         do_repeat = false;
-      } catch (runtime_error &err) {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : Failed to reset kinesis video stream : retrying \n", __FILE__, __LINE__);
-        this_thread::sleep_for(std::chrono::seconds(2));
+        break;
+    } else {
+        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : Failed to reset kinesis video stream : retrying \n", __FILE__, __LINE__);
+		this_thread::sleep_for(std::chrono::seconds(2));
         retry++;
-        if ( retry > KVSINITMAXRETRY ) {
-          RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVRUPLOAD","%s(%d) : FATAL : Max retry reached in reset stream exit process %d\n", __FILE__, __LINE__);
-          exit(1);
+        if ( retry > KVSINITMAXRETRY )
+        {
+            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in reset stream\n", __FILE__, __LINE__);
+            return false;
         }
-      }
+    }
   } while(do_repeat);
 
   //update persisted time in case of reset stream
@@ -974,7 +979,8 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highme
         }
     }
     else
-    { //in content change recreate stream
+    { 
+        //in content change recreate stream
         ret = recreate_stream(&data);
     }
 
@@ -1009,11 +1015,14 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
 
     if( frame_dropped_flag )
     {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Resetting stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
         frame_dropped_flag = 0;
         frame_dropped_count = 0;
-        //reset_stream(&data); //TBD
-        return 1;
+        bool status = reset_stream(&data);
+        if ( false == status ) {
+            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in resetting stream : stream recreation will happen\n", __FILE__, __LINE__);
+            return 1;
+        }
     }
 
     int retstatus=0;
@@ -1118,14 +1127,17 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
 
         //To maintain 60 seconds send/ack time gap and to avoid if the second clip's ack is delayed than sending
         if( cliptime_diff.count() > CVR_THRESHHOLD_COUNT_IN_MILLISECONDS ) {
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to get clip upload status - Timeout : %lld : attempt to recreate stream \n", __FILE__, __LINE__, cliptime_diff.count());
+            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to get clip upload status - Timeout : %lld : attempt to reset stream \n", __FILE__, __LINE__, cliptime_diff.count());
 
             //Iterate and comapre clip map and clip queue for clip name and send failure notification
             //Also Flush the clip except the latest one
             //In poor network condition hang seen with kinesisVideoStreamUninitSync api
             //kinesisVideoStreamUninitSync(&data);
-            //reset_stream(&data); //TBD
-            return 1;
+            bool status = reset_stream(&data);
+            if ( false == status ) {
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in resetting stream : stream recreation will happen\n", __FILE__, __LINE__);
+                return 1;
+            }
         }
     } else {
         single_clip_size += buffer_size;
