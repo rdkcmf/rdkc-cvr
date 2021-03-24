@@ -96,6 +96,24 @@ void CVR::onUploadSuccess(char* cvrRecName)
 
 void CVR::onUploadError(char* cvrRecName, const char* streamStatus)
 {
+    long long int recIndex = atoll(cvrRecName);
+    EventType eventType = eventMap.find(recIndex)->second;
+    if(eventType == EVENT_TYPE_MOTION) {
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): kvs Upload Failed with Motion - %s\n", __FUNCTION__, __LINE__, cvrRecName);
+    }
+    else {
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): kvs Upload Failed without Motion - %s\n", __FUNCTION__, __LINE__, cvrRecName);
+    }
+    std::map<long long int, EventType>::iterator it;
+    it = eventMap.find(recIndex);
+    if (it != eventMap.end()) {
+        eventMap.erase (it);
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Deleted from the EventMap\n", __FUNCTION__, __LINE__);
+    }
+    else {
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Error to find in the EventMap\n",__FUNCTION__, __LINE__);
+    }
+
     notify_smt_TN_uploadStatus(CVR_UPLOAD_FAIL, cvrRecName);
     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d):  kvsclip upload error %s, %s\n",__FILE__, __LINE__, cvrRecName, streamStatus);
 }
