@@ -109,6 +109,24 @@ void CVR::onUploadSuccess(char* cvrRecName)
 
 void CVR::onUploadError(char* cvrRecName, const char* streamStatus)
 {
+    long long int recIndex = atoll(cvrRecName);
+    EventType eventType = eventMap.find(recIndex)->second;
+    if(eventType == EVENT_TYPE_MOTION) {
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): kvs Upload Failed with Motion - %s\n", __FUNCTION__, __LINE__, cvrRecName);
+    }
+    else {
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): kvs Upload Failed without Motion - %s\n", __FUNCTION__, __LINE__, cvrRecName);
+    }
+    std::map<long long int, EventType>::iterator it;
+    it = eventMap.find(recIndex);
+    if (it != eventMap.end()) {
+        eventMap.erase (it);
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Deleted from the EventMap\n", __FUNCTION__, __LINE__);
+    }
+    else {
+        RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Error to find in the EventMap\n",__FUNCTION__, __LINE__);
+    }
+
     notify_smt_TN_uploadStatus(CVR_UPLOAD_FAIL, cvrRecName);
     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d):  kvsclip upload error %s, %s\n",__FILE__, __LINE__, cvrRecName, streamStatus);
 }
@@ -1877,22 +1895,22 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 else
                 {
-					if(IAV_PIC_TYPE_IDR_FRAME == cvr_frame.pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame.pic_type)
-					{
-						RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR","%s(%d): Got the first I Frame \n", __FILE__, __LINE__);
-						has_an_iframe = 1;
-					}
-					else {
-						RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Frame obtained is not an I Frame \n");
-						usleep(10000);
-						continue;
-					}
+		    if(IAV_PIC_TYPE_IDR_FRAME == cvr_frame.pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame.pic_type)
+		    {
+			RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR","%s(%d): Got the first I Frame \n", __FILE__, __LINE__);
+			has_an_iframe = 1;
+		    }
+		    else {
+			RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Frame obtained is not an I Frame \n");
+			usleep(10000);
+			continue;
+		    }
                     //gettimeofday(&start_t,NULL);
                     clock_gettime(CLOCK_REALTIME, &start_t);
-					start_msec = cvr_frame.frame_timestamp;
-					memcpy(&cvr_key_frame, &cvr_frame, sizeof(RDKC_FrameInfo));
-					RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): start_msec=%lu\n", __FILE__, __LINE__, start_msec);
-					break;
+		    start_msec = cvr_frame.frame_timestamp;
+		    memcpy(&cvr_key_frame, &cvr_frame, sizeof(RDKC_FrameInfo));
+		    RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): start_msec=%lu\n", __FILE__, __LINE__, start_msec);
+		    break;
                 }
             }
             streamNotreadyErrorCount = 0; // Resetting the error count as we got the Iframe
