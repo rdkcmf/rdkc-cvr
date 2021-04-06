@@ -63,6 +63,7 @@ clean:
 	
 install:
 	$(PLATFORM_BREAKPAD_BINARY) $(DEBUG_TARGET) > $(RELEASE_TARGET).sym
+	sed -i "1s/$(DEBUG_TARGET)/$(RELEASE_TARGET)/" $(RELEASE_TARGET).sym
 	mv -f $(RELEASE_TARGET).sym  $(PLATFORM_SYMBOL_PATH)
 	echo "kvs clip upload debug symbol created for $(RELEASE_TARGET)"
 
