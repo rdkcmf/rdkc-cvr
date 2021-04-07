@@ -59,7 +59,7 @@ export FSROOT=$RDK_FSROOT_PATH
 
 export KVS_FRAMEUPLOAD=yes
 
-if [ "$XCAM_MODEL" == "SCHC2" ] || [ "$XCAM_MODEL" == "XHB1" ]; then
+if [ "$XCAM_MODEL" == "SCHC2" ] || [ "$XCAM_MODEL" == "XHB1" ] || [ "$XCAM_MODEL" == "XHC3" ]; then
     echo "Enable xStreamer by default for xCam2 and DBC"
     export ENABLE_XSTREAMER=true
 else

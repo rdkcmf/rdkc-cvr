@@ -1171,7 +1171,7 @@ void CVR::cvr_check_audio()
         }
 
         if(strcmp(configParam, RDKC_TRUE) == 0) {
-#ifndef XHB1
+#if !defined( XHB1) && !defined( XHC3 )
                 cvr_audio_status = CVR_AUDIO_ENABLED;
                 RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
 #else

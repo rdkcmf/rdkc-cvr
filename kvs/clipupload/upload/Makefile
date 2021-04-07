@@ -67,7 +67,6 @@ install:
 	sed -i "1s/$(DEBUG_TARGET)/$(RELEASE_TARGET)/" $(RELEASE_TARGET).sym
 	mv -f $(RELEASE_TARGET).sym  $(PLATFORM_SYMBOL_PATH)
 	echo "kvs clip upload debug symbol created for $(RELEASE_TARGET)"
-
 	$(INSTALL) -D $(RELEASE_TARGET) ${RDK_FSROOT_PATH}/usr/lib/$(RELEASE_TARGET)
 
 uninstall:

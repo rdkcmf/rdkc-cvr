@@ -32,8 +32,13 @@ ifeq ($(XCAM_MODEL), XHB1)
 USE_DEWARP = yes
 CFLAGS +=-DOSI
 else
+ifeq ($(XCAM_MODEL), XHC3)
+USE_DEWARP = yes
+CFLAGS +=-DOSI
+else
 SUPPORT_MXML = yes
 USE_STREAMUTILS = yes
+endif
 endif
 
 ifeq ($(XCAM_MODEL), SCHC2)
@@ -74,7 +79,12 @@ ifeq ($(XCAM_MODEL), XHB1)
 CFLAGS +=-DXHB1
 SRC  += upload/kvsupload.cpp core/osi_cvr_daemon.cpp
 else
+ifeq ($(XCAM_MODEL), XHC3)
+CFLAGS +=-DXHC3
+SRC  += upload/kvsupload.cpp core/osi_cvr_daemon.cpp
+else
 SRC  += upload/kvsupload.cpp core/cvr_daemon.cpp
+endif
 endif
 OBJ = $(SRC:.cpp=.o)
 

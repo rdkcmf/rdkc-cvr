@@ -17,8 +17,10 @@
 # limitations under the License.
 ##########################################################################
 ifneq ($(XCAM_MODEL), XHB1)
+ifneq ($(XCAM_MODEL), XHC3)
 SUBDIRS += clipupload/upload
 SUBDIRS += clipupload/core
+endif
 endif
 SUBDIRS += frameupload
 all:
