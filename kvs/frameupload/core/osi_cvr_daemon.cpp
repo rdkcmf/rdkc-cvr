@@ -26,10 +26,8 @@
 #endif
 
 #include <inttypes.h>
-#define DATA_LEN                       128
-#define CVR_RESOLUTION_CONF            "/opt/usr_config/cvr.conf"
-#define CVR_RESOLUTION                 "resolution"
 #define KVSINITMAXRETRY         5
+#define EVENT_THRESHHOLD_COUNT  4
 #define KVS_SMARTRC "RFC_ENABLE_XCAM2_SMARTRC"
 int CVR::cvr_audio_status = CVR_AUDIO_UNKNOWN;
 vai_result_t CVR::vai_result_recved_rtmsg;
@@ -69,7 +67,7 @@ using namespace std;
 
 void CVR::onUploadSuccess(char* cvrRecName)
 {
-    long long int recIndex = atol(cvrRecName);
+    long long int recIndex = atoll(cvrRecName);
     EventType eventType = eventMap.find(recIndex)->second;
     if(eventType == EVENT_TYPE_MOTION)
     {
@@ -83,7 +81,14 @@ void CVR::onUploadSuccess(char* cvrRecName)
     it = eventMap.find(recIndex);
     if (it != eventMap.end())
     {
-        eventMap.erase (it);
+	for ( auto& x: eventMap) 
+            RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","onUploadSuccess Before Erase : clipName - %d timecode - %llu\n", x.second, x.first);
+
+        eventMap.erase(eventMap.begin(), it);
+        eventMap.erase(it);
+	for ( auto& x: eventMap)
+            RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","onUploadSuccess After Erase : clipName - %d timecode - %llu\n", x.second, x.first);
+
         RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): Deleted from the EventMap\n", __FUNCTION__, __LINE__);
     }
     else {
@@ -107,7 +112,14 @@ void CVR::onUploadError(char* cvrRecName, const char* streamStatus)
     std::map<long long int, EventType>::iterator it;
     it = eventMap.find(recIndex);
     if (it != eventMap.end()) {
-        eventMap.erase (it);
+	for ( auto& x: eventMap) 
+            RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","onUploadError Before Erase : clipName - %d event_type - %llu\n", x.second, x.first);
+
+        eventMap.erase(eventMap.begin(), it);
+        eventMap.erase(it);
+	for ( auto& x: eventMap) 
+            RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","onUploadError Before Erase : clipName - %d event_type - %llu\n", x.second, x.first);
+
         RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Deleted from the EventMap\n", __FUNCTION__, __LINE__);
     }
     else {
@@ -143,8 +155,6 @@ CVR::CVR(): init_flag(0),
 	hwtimer_fd(-1),
 	//local_stream_err(0),
 	file_len(CVR_CLIP_DURATION),
-	file_num(CVR_CLIP_NUMBER),
-	file_format(0),
 	m_streamid(DEF_CVR_CHANNEL),
 	has_an_iframe(0),
 	target_duration(0),
@@ -155,7 +165,6 @@ CVR::CVR(): init_flag(0),
 	count_low(0),
 	count_med(0),
 	count_high(0),
-	contentchangestatus(0),
 	iskvsInitDone(false),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
@@ -236,7 +245,7 @@ void CVR::push_msg(vai_result_t vai_result_recved_rtmsg)
     std::unique_lock<std::mutex> lock(rtmessageCVRMutex);
     // Limiting the queue size to 30, by discarding the oldest element in the queue
     if( RT_MSG_CVR_Q_SIZE_LIMIT <= rtmessageCVRQ.size()) {
-	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Maximum limit for the rtmessage CVR queue reached. Queue size is %d. Popping out one element from the queue!!!\n", __FILE__, __LINE__, rtmessageCVRQ.size() );
+	RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): Maximum limit for the rtmessage CVR queue reached. Queue size is %d. Popping out one element from the queue!!!\n", __FILE__, __LINE__, rtmessageCVRQ.size() );
 	rtmessageCVRQ.pop();
     }
 
@@ -361,10 +370,10 @@ void CVR::on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32
 		}
 		reload_cvr_config = 0;
 	}
-
     	int iscvrenabled = atoi(CloudRecorderInfo.enable);
+
 	// No need to process the analytics message if cvr is disabled or stream error
-	if ( ( iscvrenabled == 0) || (local_stream_err == 1) ) {
+	if ( (iscvrenabled == 0) || (local_stream_err == 1) ) {
 		return;
 	}
 	
@@ -401,15 +410,15 @@ void CVR::on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32
 			rtMessage_GetInt32(m, "boundingBoxWidth", &boundingBoxWidth);
         	
 
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): vaEngineVersion: %s\n", __FILE__, __LINE__, vaEngineVersion);
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): motionScore: %f\n",__FILE__, __LINE__, motionScore);
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): boundingBoxXOrd:%d\n", __FILE__, __LINE__,boundingBoxXOrd);
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): boundingBoxYOrd:%d\n", __FILE__, __LINE__,boundingBoxYOrd);
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): boundingBoxHeight:%d\n", __FILE__, __LINE__,boundingBoxHeight);
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): boundingBoxWidth:%d\n", __FILE__, __LINE__,boundingBoxWidth);
+			RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): vaEngineVersion: %s\n", __FILE__, __LINE__, vaEngineVersion);
+			RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): motionScore: %f\n",__FILE__, __LINE__, motionScore);
+			RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): boundingBoxXOrd:%d\n", __FILE__, __LINE__,boundingBoxXOrd);
+			RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): boundingBoxYOrd:%d\n", __FILE__, __LINE__,boundingBoxYOrd);
+			RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): boundingBoxHeight:%d\n", __FILE__, __LINE__,boundingBoxHeight);
+			RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): boundingBoxWidth:%d\n", __FILE__, __LINE__,boundingBoxWidth);
 		}
 		rtMessage_GetString(m, "currentTime", &s_curr_time);
-		RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Current Tstamp::%s\n", __FILE__, __LINE__,s_curr_time);
+		RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): Current Tstamp::%s\n", __FILE__, __LINE__,s_curr_time);
 	}
 
         rtLog_Debug("flags     :%d", hdr->flags);
@@ -445,8 +454,8 @@ void CVR::on_message_cvr(rtMessageHeader const* hdr, uint8_t const* buff, uint32
 
         rtMessage_Release(m);
 
-	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): data recieved in on_message\n", __FILE__, __LINE__);
-	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): timestamp: %llu, od_event_type = %lu, motion_level_raw = %f curr_time: %llu \n", __FILE__, __LINE__,(unsigned long long)vai_result_recved_rtmsg.timestamp, (unsigned long)vai_result_recved_rtmsg.event_type, vai_result_recved_rtmsg.motion_level_raw, vai_result_recved_rtmsg.curr_time);
+	RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): data recieved in on_message\n", __FILE__, __LINE__);
+	RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): timestamp: %llu, od_event_type = %lu, motion_level_raw = %f curr_time: %llu \n", __FILE__, __LINE__,(unsigned long long)vai_result_recved_rtmsg.timestamp, (unsigned long)vai_result_recved_rtmsg.event_type, vai_result_recved_rtmsg.motion_level_raw, vai_result_recved_rtmsg.curr_time);
 
 	push_msg(vai_result_recved_rtmsg);
 }
@@ -483,7 +492,7 @@ uint8_t CVR::calculate_motion_level(float motion_level_raw_sum,int frame_num, ui
         int motion_level_raw_average = 0;
         motion_level_raw_average = (int)(motion_level_raw_sum / (frame_num * 1.0));
 
-        RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d):sum_raw = %f, sum_frame = %d, event_tyep = %02x\n", __FILE__, __LINE__,motion_level_raw_sum,frame_num,event_type_raw);
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d):sum_raw = %f, sum_frame = %d, event_tyep = %02x\n", __FILE__, __LINE__,motion_level_raw_sum,frame_num,event_type_raw);
         if (0 == motion_level_raw_average) {
                 mask_idx = 0;
         }
@@ -494,7 +503,7 @@ uint8_t CVR::calculate_motion_level(float motion_level_raw_sum,int frame_num, ui
         m_level = m_level | m_level_mask[mask_idx];
         //Set bit to present event type
         m_level = m_level | event_type_raw;
-        RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d):m_level = %02x\n", __FILE__, __LINE__,m_level);
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d):m_level = %02x\n", __FILE__, __LINE__,m_level);
         return m_level;
 }
 
@@ -584,12 +593,12 @@ int CVR::push_od_frame_data(int *top, float *low_bound_motion_score, float curr_
 	//No empty slots
         if( *l_top == OD_FRAMES_MAX-1 )
         {
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","od frames slot is full, popping the frame with least motion score");
+                RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","od frames slot is full, popping the frame with least motion score");
                 pop_od_frame_data(l_top);
                 //calling push recursively, to update the last slot of od frame array.
                 push_od_frame_data(l_top, l_low_bound_m_score, l_curr_m_score, vai_res);
                 *l_low_bound_m_score = l_curr_m_score;
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","Low bound motion score updated: %f", *l_low_bound_m_score);
+                RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","Low bound motion score updated: %f", *l_low_bound_m_score);
         }
         else
         {
@@ -625,7 +634,7 @@ int CVR::update_od_frame_data(vai_result_t *vai_recvd_res)
         if (curr_motion_score > low_bound_motion_score) {
 		if (low_bound_motion_score == 0.0) {
 			low_bound_motion_score = curr_motion_score;
-                        RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","Low bound motion score updated: %f", low_bound_motion_score);
+                        RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","Low bound motion score updated: %f", low_bound_motion_score);
                 }
 
                 //vai od frame data to the stack and sort.
@@ -633,6 +642,7 @@ int CVR::update_od_frame_data(vai_result_t *vai_recvd_res)
                 sort_od_frame_data();
         }
 }
+
 
 /** @description: get motion statics information
  *  @param[in] p_cvr_frame - RDKC_FrameInfo structure or frameInfoH264 structure in case xStreamer is enabled
@@ -675,7 +685,7 @@ int CVR::get_motion_statistics_info(frameInfoH264 *p_cvr_frame, unsigned int *p_
                 count_high++;
         }
 
-	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): p_od_result->timestamp : %llu, p_cvr_frame->arm_pts: %llu, abs(p_cvr_frame->arm_pts - p_od_result->timestamp): %lld!!!\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
+	RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): p_od_result->timestamp : %llu, p_cvr_frame->arm_pts: %llu, abs(p_cvr_frame->arm_pts - p_od_result->timestamp): %lld!!!\n", __FILE__, __LINE__, (unsigned long long)p_od_result->timestamp, (unsigned long long)p_cvr_frame->arm_pts, abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)));
 
         if (0 == p_od_result->timestamp || abs((long long)(p_cvr_frame->arm_pts - p_od_result->timestamp)) > (45000 * 2) ) {
             if (0 == count_motion_mismatch) {
@@ -689,17 +699,17 @@ int CVR::get_motion_statistics_info(frameInfoH264 *p_cvr_frame, unsigned int *p_
         (*p_frame_num_count)++;
         (*p_motion_level_raw_sum) = (*p_motion_level_raw_sum) + p_od_result->motion_level_raw;
         
-        RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): frame_num = %d, motion_level_raw = %f od_event_type = %02x\n", __FILE__, __LINE__,*p_frame_num_count, p_od_result->motion_level_raw, p_od_result->event_type);
-       RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): cvr_event_seconds[%d]: %d curr_time: %llu timestamp: %llu\n", __FILE__, __LINE__, EVENT_TYPE_MOTION, cvr_event_seconds[EVENT_TYPE_MOTION], p_od_result-> curr_time, p_od_result->timestamp);
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): frame_num = %d, motion_level_raw = %f od_event_type = %02x\n", __FILE__, __LINE__,*p_frame_num_count, p_od_result->motion_level_raw, p_od_result->event_type);
+       RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): cvr_event_seconds[%d]: %d curr_time: %llu timestamp: %llu\n", __FILE__, __LINE__, EVENT_TYPE_MOTION, cvr_event_seconds[EVENT_TYPE_MOTION], p_od_result-> curr_time, p_od_result->timestamp);
  
         if (p_od_result->event_type & (1 << EVENT_TYPE_PEOPLE)) {
                 (*p_event_type_raw)= (*p_event_type_raw) | CVR_EVENT_TYPE_PEOPLE_MASK;
             if( 0 == cvr_event_seconds[EVENT_TYPE_PEOPLE] ) {
                 cvr_event_seconds[EVENT_TYPE_PEOPLE] = p_od_result-> curr_time;
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): People detected, Setting the object timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): People detected, Setting the object timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
 		    }
             else {
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): People detected, but object timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): People detected, but object timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE]);
             }
         }
 
@@ -707,20 +717,20 @@ int CVR::get_motion_statistics_info(frameInfoH264 *p_cvr_frame, unsigned int *p_
                 (*p_event_type_raw) = (*p_event_type_raw) | CVR_EVENT_TYPE_TAMPER_MASK;
             if( 0 == cvr_event_seconds[EVENT_TYPE_TAMPER] ) {
                 cvr_event_seconds[EVENT_TYPE_TAMPER] = p_od_result-> curr_time;
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Tamper detected, Setting the tamper timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Tamper detected, Setting the tamper timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
 		    }
             else {
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Tamper detected, but tamper timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Tamper detected, but tamper timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_TAMPER]);
             }
         }
 
         if (p_od_result->event_type & (1 << EVENT_TYPE_MOTION)) {
             if( 0 == cvr_event_seconds[EVENT_TYPE_MOTION] ) {
                 cvr_event_seconds[EVENT_TYPE_MOTION] = p_od_result-> curr_time;
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Motion detected, Setting the motion timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Motion detected, Setting the motion timestamp %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
 		    }
             else {
-                RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Motion detected, but motion timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Motion detected, but motion timestamp has already set to %d\n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_MOTION]);
             }
         }
 
@@ -781,7 +791,7 @@ int CVR::cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t
 {
 	event_quiet_time = get_quiet_interval();
 
-	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR",",event_quiet_time=%d",event_quiet_time);
+	RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR",",event_quiet_time=%d",event_quiet_time);
 
 	if (cvr_event_seconds[EVENT_TYPE_MOTION] >= cvr_starttime - 1) {
 		/* Update event only if exceeds quiet time */
@@ -831,12 +841,12 @@ int CVR::cvr_get_event_info( EventType *event_type,time_t *event_datetime,time_t
 		cvr_event_seconds[EVENT_TYPE_PEOPLE] = 0;
 	}
 	else {
-			RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): No valid event detection during the timeframe starting from %d, Present detection timestamps P:%d T:%d M:%d \n", __FILE__, __LINE__, cvr_starttime, cvr_event_seconds[EVENT_TYPE_PEOPLE], cvr_event_seconds[EVENT_TYPE_TAMPER], cvr_event_seconds[EVENT_TYPE_MOTION] );
+			RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): No valid event detection during the timeframe starting from %d, Present detection timestamps P:%d T:%d M:%d \n", __FILE__, __LINE__, cvr_starttime, cvr_event_seconds[EVENT_TYPE_PEOPLE], cvr_event_seconds[EVENT_TYPE_TAMPER], cvr_event_seconds[EVENT_TYPE_MOTION] );
 	}
 #endif
 
 	// Reset all the event detection timestamps
-	RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): Reseting all the detection timestamps, Present detection timestamps P:%d T:%d M:%d \n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE], cvr_event_seconds[EVENT_TYPE_TAMPER], cvr_event_seconds[EVENT_TYPE_MOTION] );
+	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Reseting all the detection timestamps, Present detection timestamps P:%d T:%d M:%d \n", __FILE__, __LINE__, cvr_event_seconds[EVENT_TYPE_PEOPLE], cvr_event_seconds[EVENT_TYPE_TAMPER], cvr_event_seconds[EVENT_TYPE_MOTION] );
 	memset(&cvr_event_seconds, 0, sizeof(cvr_event_seconds));
 
 	return 0;
@@ -897,11 +907,11 @@ int CVR::cvr_check_rfcparams()
 	
         if(strcmp(configParam, RDKC_TRUE) == 0) {
                 cvr_audio_status = CVR_AUDIO_ENABLED;
-                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
+                RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
         }
 	else {
                 cvr_audio_status = CVR_AUDIO_DISABLED;
-                RDK_LOG( RDK_LOG_DEBUG1, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
+                RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
         }
 
         //RFC check for kvs smartrc
@@ -1090,8 +1100,6 @@ int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInf
                 sleep(1);
                 check_polling_config_timeout --;
         }
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): xfinity polling config done.\n", __FILE__, __LINE__);
-
         rdkc_ret = cvr_read_config(pCloudRecorderInfo);
 	if (0 == rdkc_ret)
 	{
@@ -1102,6 +1110,7 @@ int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInf
 	{
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
 	}
+        createkvsstream((m_streamid & 0x0F),0);
 }
 
 /**
@@ -1111,13 +1120,13 @@ int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInf
  */
 void CVR::notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fname)
 {
-	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): upload file base name:%s\n",__FILE__, __LINE__, upload_fname);
+	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): upload file base name:%s\n",__FILE__, __LINE__, upload_fname);
 
 	rtMessage msg;
 	rtMessage_Create(&msg);
 	rtMessage_SetInt32(msg, "status", status);
 	rtMessage_SetString(msg, "uploadFileName", upload_fname);
-	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVRUPLOAD","%s(%d): Sending CVR upload status to smart thumbnail, status code:%d\n",__FILE__, __LINE__, status);
+	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Sending CVR upload status to smart thumbnail, status code:%d\n",__FILE__, __LINE__, status);
 	rtError err = rtConnection_SendMessage(connectionSend, msg, "RDKC.CVR.UPLOAD.STATUS");
 	rtLog_Debug("SendRequest:%s", rtStrError(err));
 	if (err != RT_OK)
@@ -1159,18 +1168,76 @@ void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_na
 	rtMessage_Release(msg);
 }
 
+/** @description: creates kvs stream
+ *  @param[in]: stream_id and recreateflag
+ *  @return: bool - SUCCESS or FAILURE
+ */
+bool CVR::createkvsstream(int stream_id, unsigned short recreateflag)
+{
+    int ret_kvs = RDKC_SUCCESS;
+    unsigned short contentchangestatus = 0;
+    
+    //kvs init
+    if(!iskvsInitDone)
+    {
+        do
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsInit\n", __FILE__, __LINE__);
+            ret_kvs = kvsInit(this, stream_id, m_storageMem);
+
+            static int retry = 0;
+            if (0 != ret_kvs)
+            {
+                retry++;
+                if ( retry > KVSINITMAXRETRY )
+                {
+                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in kvsInit exit process %d\n", __FILE__, __LINE__);
+                    cvr_close();
+                    exit(0);
+                }
+                iskvsInitDone = false;
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : kvsInit Failed retry number : %d \n", __FILE__, __LINE__,retry);
+                sleep(2);
+            }
+            else if ( 0 == ret_kvs )
+            {
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsInit success \n", __FILE__, __LINE__);
+                iskvsInitDone = true;
+            }
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): After Invoking kvsInit\n", __FILE__, __LINE__);
+        } while ( ret_kvs != 0);
+    }
+
+    //kvs stream init
+    if ( false == iskvsStreamInitDone )
+    {
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsStreamInit \n", __FILE__, __LINE__ );
+        //contentchangestatus = 0;
+        ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, recreateflag);
+        if ( true == ret_kvs )
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsStreamInit success \n", __FILE__, __LINE__);
+            iskvsStreamInitDone = true;
+        }
+        else
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Max retry reached in kvsStreamInit exit process \n", __FILE__, __LINE__);
+            cvr_close();
+            exit(0);
+        }
+    }
+
+    return true;
+}
+
 /** @description: deflates the queue with the frame data
  *                and pushes to the KVS API
  *  @param[in]: -NIL-
  *  @return: bool - SUCCESS or FAILURE
  */
-bool CVR::pushFrames(frameInfoH264* frameInfo,
+int CVR::pushFrames(frameInfoH264* frameInfo,
 					char* fileName,
-					int stream_id,
-					unsigned short kvsclip_audio,
-					EventType eventType = EVENT_TYPE_MAX,
-					bool isEOF = false,
-					bool doInit = false)
+					bool isEOF = false)
 {
     int ret_kvs = RDKC_SUCCESS;
 
@@ -1179,66 +1246,9 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Empty clip name!! frame upload failure\n", __FILE__, __LINE__);
         return false;
     }
-    
-    //kvs init
-    if(doInit)
-    {
-        if(!iskvsInitDone)
-        {
-            do
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsInit with storage %lu\n", __FILE__, __LINE__,m_storageMem);
-                ret_kvs = kvsInit(this, stream_id, m_storageMem);
 
-                static int retry = 0;
-                if (0 != ret_kvs)
-                {
-                    retry++;
-                    if ( retry > KVSINITMAXRETRY )
-                    {
-                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : FATAL : Max retry reached in kvsInit exit process %d\n", __FILE__, __LINE__);
-                        cvr_close();
-                        exit(0);
-                    }
-                    iskvsInitDone = false;
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : kvsInit Failed retry number : %d \n", __FILE__, __LINE__,retry);
-                    sleep(2);
-                }
-                else if ( 0 == ret_kvs )
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsInit success \n", __FILE__, __LINE__);
-                    iskvsInitDone = true;
-                }
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): After Invoking kvsInit\n", __FILE__, __LINE__);
-            } while ( ret_kvs != 0);
-        }
-
-        //kvs stream init
-        if ( false == iskvsStreamInitDone )
-        {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsStreamInit \n", __FILE__, __LINE__ );
-            contentchangestatus = 0;
-            ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, contentchangestatus);
-            if ( true == ret_kvs )
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsStreamInit success \n", __FILE__, __LINE__);
-                iskvsStreamInitDone = true;
-            }
-            else
-            {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Max retry reached in kvsStreamInit exit process \n", __FILE__, __LINE__);
-                cvr_close();
-                exit(0);
-            }
-        }
-        return;
-    }
-
-    bool cvr_upload_retry = false;
-
-    do
-    {
-        RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR","%s(%d): check values : %u\n", __FILE__, __LINE__, kvsclip_audio);
+    //do {
+        RDK_LOG(RDK_LOG_TRACE1, "LOG.RDK.CVR","%s(%d): check values : %u\n", __FILE__, __LINE__, kvsclip_audio);
 		frameInfoH264 frameInfoTmp;
 		memset(&frameInfoTmp, 0, sizeof(frameInfoH264));
 
@@ -1306,74 +1316,33 @@ bool CVR::pushFrames(frameInfoH264* frameInfo,
 		}
 #endif //DEBUG_DUMP_H264
 
-        ret_kvs = kvsUploadFrames(kvsclip_audio, kvsclip_highmem, frameInfoTmp, fileName, isEOF);
+        ret_kvs = kvsUploadFrames(kvsclip_highmem, frameInfoTmp, fileName, isEOF);
 
         RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Pushing the Frames to KVS \n");
         if(isEOF)
         {
             RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR","EOF Frame pushed. Marking the End of a clip %s\n", fileName);
-            if (2 != ret_kvs)
-            break;
         }
-
         if (-1 == ret_kvs)
-        { //failure
-            cvr_upload_retry = false;
+        {
             RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d):  kvsUploadFrames : upload failed %s\n", __FILE__,__LINE__, fileName);
-          //notify_smt_TN_uploadStatus(CVR_UPLOAD_FAIL, fileName);
         }
         else if (0 == ret_kvs)
-        { //success
-            cvr_upload_retry = false;
-            RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): kvsUploadFrames : upload success : %s\n",__FILE__, __LINE__, fileName);
-
-            if (event_type == EVENT_TYPE_MOTION)
-            {
-                RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): kvs Frame push successful with Motion\n",__FUNCTION__, __LINE__);
-            }
-            else 
-            {
-                RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): kvs Frame push Successful without Motion\n", __FUNCTION__, __LINE__);
-            }
-
+        {
+            RDK_LOG(RDK_LOG_TRACE1, "LOG.RDK.CVR", "%s(%d): kvsUploadFrames : upload success : %s\n",__FILE__, __LINE__, fileName);
         }
         else if (1 == ret_kvs)
         {
             iskvsStreamInitDone = false;
-            contentchangestatus = 1;
-            if (false == iskvsStreamInitDone)
-            {
-                RDK_LOG(RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): Re-Invoking kvs_stream_init \n", __FILE__,__LINE__);
-
-                ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, contentchangestatus);
-                if ( true == ret_kvs )
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Re-Invoking kvs_stream_init success \n", __FILE__, __LINE__);
-                    iskvsStreamInitDone = true;
-                }
-                else
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): FATAL : Max retry reached in Re-Invoking kvsStreamInit exit process \n", __FILE__, __LINE__);
-                    cvr_close();
-                    exit(0);
-                }
-            }
-        }
-        else if(2 == ret_kvs)
-        {
-            RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Failed to receive fragment ack\n", __FILE__,__LINE__);
-            cvr_close();
-            exit(0);
         }
         else 
         {
             RDK_LOG(RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d): Unknown return status for clip %s\n", __FILE__,__LINE__, fileName);
         }
 
-    }while(cvr_upload_retry);
+    //}while(cvr_upload_retry);
 
-
-    return true;
+    return ret_kvs;
 }
 
 /** @description: do cvr process
@@ -1397,6 +1366,8 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     cvr_provision_info_t *CloudRecorderInfo  = (cvr_provision_info_t*)pCloudRecorderInfo ;
     int iscvrenabled = atoi(CloudRecorderInfo->enable);
     file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
+    unsigned short lenableaudio = kvsclip_audio;
+    int pushframestatus = 0;
 
     while (!term_flag)
     {
@@ -1405,14 +1376,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         count_low = 0;
         count_med = 0;
         count_high = 0;
-
-        /* Enable/Disable DEBUG logs */
-        if( access( ENABLE_CVR_RDK_DEBUG_LOG_FILE, F_OK ) != -1 ) {
-            enable_debug = 1;
-        }
-        else {
-            enable_debug = 0;
-        }
 
         if (reload_cvr_flag)
         {
@@ -1541,12 +1504,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             init_flag = 1;
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): CVR init succesfull!\n", __LINE__);
 
-            tv = gmtime(&start_t.tv_sec);
-            snprintf(file_name, sizeof(file_name), "%04d%02d%02d%02d%02d%02d", (tv->tm_year+1900), tv->tm_mon+1, tv->tm_mday, tv->tm_hour, tv->tm_min, tv->tm_sec);
-            if(!iskvsInitDone)
-            {
-                pushFrames(cvr_key_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, false, true);
-            }
             // wait for I frame
             while (!term_flag)
             {
@@ -1589,7 +1546,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     start_msec = cvr_frame->frame_timestamp;
                     memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
 
-                    RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): start_msec=%lu\n", __FILE__, __LINE__, start_msec);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec=%lu\n", __FILE__, __LINE__, start_msec);
                     break;
                 }
             }
@@ -1602,7 +1559,21 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             continue;
         }
 
+        if ( lenableaudio != kvsclip_audio) {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : prior audio enable flag : %d , current audio enable flag : %d\n", __FILE__, __LINE__, lenableaudio, kvsclip_audio);
+            lenableaudio = kvsclip_audio;
+            iskvsStreamInitDone = false;
+            createkvsstream(( m_streamid & 0x0F ),1);
+        }
+
+        if ( 1 == pushframestatus ) {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, pushframestatus);
+            iskvsStreamInitDone = false;
+            pushframestatus = 0;
+            createkvsstream(( m_streamid & 0x0F ),1);
+        }
         clipStatus = CVR_CLIP_GEN_START;
+
         frame_num_count = 0;
         motion_level_raw_sum = 0.0;
         event_type_raw = 0;
@@ -1630,7 +1601,11 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             cvr_flag |= RDKC_STREAM_FLAG_ABSTIMESTAMP;
 
             RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): Initialize clip creation, ts_fd=%d, cvr_flag=%d!\n", __LINE__, ts_fd, cvr_flag);
-            pushFrames(cvr_key_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio);
+            pushframestatus = pushFrames(cvr_key_frame, file_name);
+            if ( 1 == pushframestatus ) {
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
+                break;
+            }
 
             idrFrameCount++;
 
@@ -1638,15 +1613,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             //Get the motion statistics information
             get_motion_statistics_info(cvr_key_frame, &frame_num_count, &event_type_raw, &motion_level_raw_sum);
         }
-
-        long frameTimeStamp_first = start_msec;
-        while (((long)cvr_frame->frame_timestamp - frameTimeStamp_first) < file_len*1000 )
+        while ((long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
         {
             if (term_flag || local_stream_err)
             {
                 break;
             }
-
             // reload cvr config
             if (reload_cvr_flag)
             {
@@ -1663,7 +1635,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 reload_cvr_flag = 0;
             }
-
             // CVR disabled
             if (iscvrenabled == 0)
             {
@@ -1681,11 +1652,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             }
             else if (0 == ccode)
             {
-                if(contentchangestatus == 1)
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): contentStatus changed\n", __FILE__, __LINE__);
-                    break;
-                }
                 if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
                         && (long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
                 {
@@ -1695,13 +1661,16 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     clock_gettime(CLOCK_REALTIME, &start_t);
                     start_msec = cvr_frame->frame_timestamp;
                     memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-                    RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): start_msec_iframe_clipend=%lu\n", __FILE__, __LINE__, start_msec);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe_clipend=%lu\n", __FILE__, __LINE__, start_msec);
                     break;
                 }
-
                 if (!has_an_iframe)
                 {
-                    pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio);
+                    pushframestatus = pushFrames(cvr_frame, file_name);
+                    if ( 1 == pushframestatus ) {
+                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
+                        break;
+                    }
 
                     if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type) ) {
                         idrFrameCount++;
@@ -1774,11 +1743,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 else
                 {
-                    if(contentchangestatus == 1)
-                    {
-                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): contentStatus changed\n", __FILE__, __LINE__);
-                        break;
-                    }
                     if (IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
                     {
                         has_an_iframe = 1;
@@ -1786,12 +1750,16 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                         clock_gettime(CLOCK_REALTIME, &start_t);
                         start_msec = cvr_frame->frame_timestamp;
                         memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-                        RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): start_msec_iframe=%lu\n", __FILE__, __LINE__, start_msec);
+                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe=%lu\n", __FILE__, __LINE__, start_msec);
                         break;
                     }
                     if (!has_an_iframe)
                     {
-                        pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio);
+                        pushframestatus = pushFrames(cvr_frame, file_name);
+                        if ( 1 == pushframestatus ) {
+                            RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
+                            break;
+                        }
 
                         //save audio frame with timestamp less than start_msec, else continue
                         if ((XSTREAM_STREAM_TYPE_AAC == cvr_frame->stream_type) && (cvr_frame->frame_timestamp + AUDIO_DURATION > start_msec)) {
@@ -1840,15 +1808,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             }
         }
 
-        if(contentchangestatus == 1)
-        {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): resetting contentStatus\n", __FILE__, __LINE__);
-            contentchangestatus=0;
-            //to mark the end of the clip
-            pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, true);
-            continue;
-        }
-
         //caculate the last second of  clip
         if ( (XSTREAM_STREAM_TYPE_AAC != cvr_frame->stream_type) && (frame_num_count > 0 && motion_level_idx <= VIDEO_DURATION_MAX) )
         {
@@ -1857,11 +1816,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
         if (!term_flag)
         {
-            // Call app to send out to server
-            //gettimeofday(&end_t,NULL);
-            clock_gettime(CLOCK_REALTIME, &end_t);
-            snprintf(endtime, sizeof(endtime), "%lu.%lu", end_t.tv_sec, end_t.tv_nsec);
-            RDK_LOG( RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): endtime=[%s]\n", __FILE__, __LINE__, endtime);
             event_type = EVENT_TYPE_MAX;
 
             //resetting event date time
@@ -1906,13 +1860,34 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Notified clip end to smt with valid timestamp - %ld - filename (%s) \n", __FILE__, __LINE__, event_datetime, file_name);
                         notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name, event_datetime);
                     }
+	            for ( auto& x: eventMap) 
+                         RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","do_cvr Before insert : clipName - %d event_type - %llu\n", x.second, x.first);
+
+	            //delete the files in the list in case of threshold limit
+                    if(eventMap.size() == EVENT_THRESHHOLD_COUNT) {
+	                int ctr = 0;
+	                while(ctr < EVENT_THRESHHOLD_COUNT) {
+	                    std::map<long long int, EventType>::iterator it = eventMap.begin();
+	                    RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) Erasing event_type for %lld cvr file from map\n", __FUNCTION__ , __LINE__, (*it).first);
+	                    eventMap.erase(it);
+	                    ctr++;
+	                }
+                    }
+
                     std::pair<std::map<long long int, EventType>::iterator, bool> retElem;
                     retElem = eventMap.insert(std::pair<long long int, EventType>(fileIndex, event_type));
-                    if ((retElem.first->first != fileIndex) || (retElem.second != true))
+                    if ((retElem.first->first != fileIndex) || (retElem.second != true)) {
                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Insertion into the eventMap failed. element value - %lld, eventType - %d, return status - %d\n", __FILE__, __LINE__, retElem.first->first, retElem.first->second, retElem.second);
-                    else
+                    } else {
                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Inserted into the eventMap\n", __FILE__, __LINE__);
-                    pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, true);
+                    }
+	            for ( auto& x: eventMap) 
+                         RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","do_cvr After insert : clipName - %d event_type - %llu\n", x.second, x.first);
+
+                    pushframestatus = pushFrames(cvr_frame, file_name, true);
+                    if ( 1 == pushframestatus ) {
+                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
+                    }
                 }
                 else
                 {
@@ -1923,7 +1898,10 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Insertion into the eventMap failed. element value - %lld, eventType - %d, return status - %d\n", __FILE__, __LINE__, retElem.first->first, retElem.first->second, retElem.second);
                     else
                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Inserted into the eventMap\n", __FILE__, __LINE__);
-                    pushFrames(cvr_frame, file_name, ( m_streamid & 0x0F ), kvsclip_audio, event_type, true);
+                    pushframestatus = pushFrames(cvr_frame, file_name, true);
+                    if ( 1 == pushframestatus ) {
+                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
+                    }
                 }
 
                 if(kvsclip_audio)
@@ -1931,7 +1909,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s kvs clip has audio\n", __FILE__, __LINE__, file_name);
                 }
 
-                RDK_LOG(RDK_LOG_DEBUG1,"LOG.RDK.CVR","%s(%d): No Motion: %d, Low Motion: %d, Medium Motion: %d, High Motion: %d\n",__FILE__, __LINE__, count_no,      count_low, count_med, count_high);
+                RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): No Motion: %d, Low Motion: %d, Medium Motion: %d, High Motion: %d\n",__FILE__, __LINE__, count_no,      count_low, count_med, count_high);
                 clipStatus = CVR_CLIP_GEN_END;
 
                 if (count_motion_mismatch > 0) {

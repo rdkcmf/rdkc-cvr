@@ -93,8 +93,6 @@ extern "C"
 
 #define IP_ACQUIRED_FILE                 "/tmp/.IPAcquired"
 
-//extern struct ThreadControl hydraThreadControl[];
-//extern ThreadControl hydraThreadControl[];
 #define CVR_FAILURE			-1
 #define CVR_SUCCESS			 0
 
@@ -149,12 +147,6 @@ typedef enum cvr_clip_status
     CVR_CLIP_GEN_PROGRESS
 }cvr_clip_status_t;
 
-//typedef enum {
-//    CVR_CLIP_GEN_START = 0,
-//    CVR_CLIP_GEN_END,
-//    CVR_CLIP_GEN_UNKNOWN
-//}CVR_CLIP_GEN_STATUS;
-//
 typedef enum {
     CVR_UPLOAD_OK = 0,
     CVR_UPLOAD_FAIL,
@@ -235,8 +227,6 @@ class CVR : public kvsUploadCallback
       void cvr_init_audio_stream();
 
       static int cvr_audio_status;
-      //volatile sig_atomic_t reload_cvr_flag;
-      //volatile sig_atomic_t term_flag;
 
       int init_flag;
       int load_config_flag;
@@ -355,20 +345,14 @@ class CVR : public kvsUploadCallback
         int reset_od_frame_data();
         int stringify_od_frame_data();
         bool check_enabled_rfc_feature(char* rfc_feature_fname,char* rfc_feature);
-
+        bool createkvsstream(int stream_id, unsigned short recreateflag);
 #ifdef _HAS_XSTREAM_
-        bool pushFrames(frameInfoH264* frameInfo,
+        int pushFrames(frameInfoH264* frameInfo,
                 char* fileName,
-                int stream_id,
-                unsigned short kvsclip_audio,
-                EventType eventType = EVENT_TYPE_MAX,
                 bool isEOF = false);
 #else
-        bool pushFrames(RDKC_FrameInfo& frameInfo, 
+        int pushFrames(RDKC_FrameInfo& frameInfo, 
                 char* fileName,
-                int stream_id,
-                unsigned short kvsclip_audio,
-                EventType eventType = EVENT_TYPE_MAX, 
                 bool isEOF = false);
 #endif //_HAS_XSTREAM_
         void onUploadSuccess(char* recName);

@@ -31,7 +31,6 @@
 #include <fstream>
 #include <iomanip>
 #include <queue>
-#include <unordered_map>
 #include "KinesisVideoProducer.h"
 #include "StreamDefinition.h"
 #include "CachingEndpointOnlyCallbackProvider.h"
@@ -107,11 +106,12 @@ int time_difference = 15000;
 #define CVR_THRESHHOLD_FRAMEDROP_AUDIOVIDEO 1000
 #define CVR_THRESHHOLD_FRAMEDROP_VIDEO 600
 #define CVR_STATUS_FILE "/tmp/.cvr_status"
+#define CVR_THRESHHOLD_COUNT  4
 
 /*Global variables - TBD - convert to private */
 kvsUploadCallback* callbackObj;
 static map<uint64_t, std::string> clipmapwithtimecode;
-static deque<std::string> queueclipName;
+static map<std::string, std::chrono::system_clock::time_point> clipmapwithrealtime;
 static bool isstreamerror_reported = false;
 typedef std::chrono::milliseconds ms;
 /************************************************* common api's start*****************************************/
@@ -454,7 +454,7 @@ STATUS SampleStreamCallbackProvider::streamDataAvailableHandler(UINT64 custom_da
                                                            UPLOAD_HANDLE stream_upload_handle,
                                                            UINT64 duration_available,
                                                            UINT64 size_available) {
-    RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): SampleStreamCallbackProvider::streamDataAvailableHandler invoked\n",__FILE__, __LINE__);
+    RDK_LOG( RDK_LOG_TRACE1,"LOG.RDK.CVR","%s(%d): SampleStreamCallbackProvider::streamDataAvailableHandler invoked\n",__FILE__, __LINE__);
     return STATUS_SUCCESS;
 }
 
@@ -465,41 +465,15 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 	CustomData *customDataObj = reinterpret_cast<CustomData *>(custom_data);
 	static uint64_t totalclipcount = 0;
 	static uint64_t totalclipuploadtime = 0;
+        std::chrono::system_clock::time_point time_now;
 
 	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Reporting fragment ACK received. Fragment timecode %llu\n", pFragmentAck->timestamp );
 	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Reporting fragment ACK received. Fragment type %d\n", pFragmentAck->ackType );
 	RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Reporting fragment ACK received. Fragment seq number %s\n", pFragmentAck->sequenceNumber );
 
-	if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_BUFFERING) {
-		if(!queueclipName.empty())
-		{
-			std::map<uint64_t, std::string>::iterator it;
-			it = clipmapwithtimecode.find(pFragmentAck->timestamp);
-			if (it == clipmapwithtimecode.end())
-			{
-				std::string clipName;
-				clipName = queueclipName.front();
-				queueclipName.pop_front();
-				clipmapwithtimecode.insert(std::pair<uint64_t, std::string>(pFragmentAck->timestamp, clipName));
-			}
-		}
-		return;
-	}
-
-	if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_RECEIVED) {
-		//Debug Purpose
-		if(clipmapwithtimecode.size() > 5)
-		{
-			for ( auto& x: clipmapwithtimecode) 
-				RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","Pending clips: clipName - %s timecode - %" PRIu64 "\n", x.second.c_str(), x.first);
-		}    
-		return;
-	}
-
 	if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_PERSISTED)
 	{
-		totalclipcount++;
-                std::chrono::system_clock::time_point time_now = std::chrono::system_clock::now();
+                time_now = std::chrono::system_clock::now();
 		data.lastclippersisted_time = time_now;
 
                 //log current epoch time in file
@@ -511,45 +485,55 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
                     ofs.close();
                 }
 
-                // Time taken to persist clip
-		ms time_diff = std::chrono::duration_cast<ms>(time_now - customDataObj->clip_senttokvssdk_time);
-		totalclipuploadtime+=time_diff.count();
-		uint64_t avgtime_clipupload = totalclipuploadtime/totalclipcount ;
-
+                //Iterate to find the right clip
 		std::map<uint64_t, std::string>::iterator it;
 		it = clipmapwithtimecode.find(pFragmentAck->timestamp);
 		if (it != clipmapwithtimecode.end())
 		{
-			string persistedclip;
+                        string persistedclip;
 			persistedclip = it->second;
-			//epochtime_senttokvssdk, currenttime, epochfragmenttimecode_server, fragmentnumber, timediff
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
-					__FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff.count());
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload persisted time and clip sent time :%llu,%llu \n",__FILE__, __LINE__,std::chrono::duration_cast<std::chrono::milliseconds>(data.lastclippersisted_time.time_since_epoch()).count(), std::chrono::duration_cast<std::chrono::milliseconds>(customDataObj->clip_senttokvssdk_time.time_since_epoch()).count());
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats :%lld,%lld \n",__FILE__, __LINE__,avgtime_clipupload,totalclipcount);
 
 			callbackObj->onUploadSuccess(persistedclip.c_str());
+			for ( auto& x: clipmapwithtimecode) 
+				RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Erase persist ack Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
 			//remove the item found above, as it is already notified.
-			//delete the entries lesser than this index. reason is, buffering ack might be received and persisted might not be.
+			//delete the entries lesser than this index.
 			clipmapwithtimecode.erase(clipmapwithtimecode.begin(), it);
+                        clipmapwithtimecode.erase(it);
+			for ( auto& x: clipmapwithtimecode) 
+				RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","after Erase persist ack Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
+
+                        //Iterate to find the right clip
+	                std::map<std::string,std::chrono::system_clock::time_point>::iterator it2;
+			it2 = clipmapwithrealtime.find(persistedclip);
+			if (it2 != clipmapwithrealtime.end())
+			{
+			    std::chrono::system_clock::time_point firstframesenttime = it2->second;
+                            time_now = std::chrono::system_clock::now();
+		            ms time_diff = std::chrono::duration_cast<ms>(time_now - firstframesenttime);
+		            totalclipuploadtime+=time_diff.count();
+		            totalclipcount++;
+		            uint64_t avgtime_clipupload = totalclipuploadtime/totalclipcount ;
+
+			    //epochtime_senttokvssdk, currenttime, epochfragmenttimecode_server, fragmentnumber, timediff
+			    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
+                               __FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff.count());
+			    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload persisted time and clip sent time:%llu,%llu\n",
+                               __FILE__, __LINE__,std::chrono::duration_cast<std::chrono::milliseconds>(time_now.time_since_epoch()).count(), std::chrono::duration_cast<std::chrono::milliseconds>(firstframesenttime.time_since_epoch()).count());
+			    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats:%lld,%lld,%lld\n",
+                               __FILE__, __LINE__,time_diff.count(),avgtime_clipupload,totalclipcount);
+
+                            //erase found time from map
+                            for ( auto& x: clipmapwithrealtime)
+	                            RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Erase  time : clipName - %s realtime - %llu\n", x.first.c_str(), std::chrono::duration_cast<std::chrono::milliseconds>(x.second.time_since_epoch()).count());
+			    clipmapwithrealtime.erase(clipmapwithrealtime.begin(), it2);
+                            clipmapwithrealtime.erase(it2);
+
+                            for ( auto& x: clipmapwithrealtime)
+                                    RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","After Erase time : clipName - %s realtime - %llu\n", x.first.c_str(), std::chrono::duration_cast<std::chrono::milliseconds>(x.second.time_since_epoch()).count());
+		        }
 		}
-
-                //buffering missed and persisted ack is received.pop the queue and send upload success.
-		if(it == clipmapwithtimecode.end())
-		{
-			string persistedclip;
-			persistedclip = queueclipName.front();
-			queueclipName.pop_front();
-
-			//epochtime_senttokvssdk, currenttime, epochfragmenttimecode_server, fragmentnumber, timediff
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
-					__FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff.count());
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload persisted time and clip sent time :%llu,%llu \n",__FILE__, __LINE__,std::chrono::duration_cast<std::chrono::milliseconds>(data.lastclippersisted_time.time_since_epoch()).count(), std::chrono::duration_cast<std::chrono::milliseconds>(customDataObj->clip_senttokvssdk_time.time_since_epoch()).count());
-			RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats :%lld,%lld \n",__FILE__, __LINE__,avgtime_clipupload,totalclipcount);
-
-			callbackObj->onUploadSuccess(persistedclip.c_str());
-		}
-	}
+        }
 
 	if (pFragmentAck->ackType == FRAGMENT_ACK_TYPE_ERROR)
 	{
@@ -563,28 +547,34 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 		if (it != clipmapwithtimecode.end())
 		{
 			clipName = it->second;
+			for ( auto& x: clipmapwithtimecode) 
+				RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Erase Error ack Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
+
 			clipmapwithtimecode.erase (it);
+			for ( auto& x: clipmapwithtimecode) 
+				RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","After Erase Error ack Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
+
 			callbackObj->onUploadError(clipName.c_str(),"failed");
 			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): kvsclip upload unsuccessful %s\n",__FILE__, __LINE__,clipName.c_str());
+
+
+                        //Iterate to find the right clip
+	                std::map<std::string,std::chrono::system_clock::time_point>::iterator it2;
+			it2 = clipmapwithrealtime.find(clipName);
+			if (it2 != clipmapwithrealtime.end())
+			{
+			    std::chrono::system_clock::time_point firstframesenttime = it2->second;
+                            for ( auto& x: clipmapwithrealtime)
+	                            RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Erase Error ack time : clipName - %s realtime - %llu\n", x.first.c_str(), std::chrono::duration_cast<std::chrono::milliseconds>(x.second.time_since_epoch()).count());
+                            clipmapwithrealtime.erase(it2);
+
+                            for ( auto& x: clipmapwithrealtime)
+                                    RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","After Erase Error ack time : clipName - %s realtime - %llu\n", x.first.c_str(), std::chrono::duration_cast<std::chrono::milliseconds>(x.second.time_since_epoch()).count());
+
+                        }
+
 		}
 
-                //buffering missed, but a timecode is failed. Pop the queue and send failure notification.
-		if(it == clipmapwithtimecode.end())
-		{
-			if (!queueclipName.empty())
-			{
-				clipName = queueclipName.front();
-				queueclipName.pop_front();
-				callbackObj->onUploadError(clipName.c_str(),"failed");
-			        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): kvsclip upload unsuccessful %s\n",__FILE__, __LINE__,clipName.c_str());
-			}
-			else
-			{
-				callbackObj->onUploadError("0", "failed");
-			        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): kvsclip upload unsuccessful %s\n",__FILE__, __LINE__,clipName.c_str());
-			}
-		}
-		return;
 	}
 	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d):SampleStreamCallbackProvider::FragmentAckReceivedHandler - Exit\n", __FILE__, __LINE__);
 	return STATUS_SUCCESS;
@@ -992,34 +982,31 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highme
 }
 
 #ifdef _HAS_XSTREAM_
-int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem, frameInfoH264 frameData,char* filename, bool isEOF = false ) {
+int kvsUploadFrames(unsigned short& kvsclip_highmem, frameInfoH264 frameData,char* filename, bool isEOF = false ) {
 #else
-int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,char* filename, bool isEOF = false ) {
+int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,char* filename, bool isEOF = false ) {
 #endif //_HAS_XSTREAM_
     FRAME_FLAGS kinesis_video_flags = FRAME_FLAG_NONE;
-    unsigned short clipaudioflag = clip_audio;
     unsigned short cliphighmem = kvsclip_highmem;
     static int single_clip_size=0;
     static int frame_dropped_count=0;
     static int frame_dropped_flag=0;
     int track_id=1;
-    //Check if the clip content has changed - videoaudioclip -> videoclip / videoclip -> videoaudioclip
-    if( data.gkvsclip_audio != clipaudioflag)
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : prior audio enable flag : %d , current audio enable flag : %d\n", __FILE__, __LINE__, data.gkvsclip_audio, clipaudioflag);
-        return 1;
-    }
+    std::chrono::system_clock::time_point time_now;
+
     if( data.gkvsclip_highmem != cliphighmem )
     {
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d\n", __FILE__, __LINE__, data.gkvsclip_highmem,cliphighmem);
         return 1;
     }
+
     if( isstreamerror_reported )
     {
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, isstreamerror_reported);
         isstreamerror_reported = false;
         return 1;
     }
+
     if( frame_dropped_flag )
     {
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
@@ -1033,7 +1020,7 @@ int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem,
     size_t buffer_size = frameData.frame_size;
     if (!data.stream_started)
     {
-        if(clipaudioflag) {
+        if(data.gkvsclip_audio) {
             data.kinesis_video_stream->start(std::string(DEFAULT_CODECID_AACAUDIO),DEFAULT_AUDIO_TRACKID);
         }
         data.stream_started = true;
@@ -1042,10 +1029,61 @@ int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem,
 
     if(data.first_frame)
     {
+	//delete the files in the list in case of threshold limit
+        if(clipmapwithtimecode.size() == CVR_THRESHHOLD_COUNT) {
+	    int ctr = 0;
+	    while(ctr < CVR_THRESHHOLD_COUNT) {
+	        std::map<uint64_t, std::string>::iterator it = clipmapwithtimecode.begin();
+	        RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) Erasing %llu->%s timecode->clip from map\n",
+                    __FUNCTION__ , __LINE__, (*it).first,(*it).second.c_str());
+	        clipmapwithtimecode.erase(it);
+	        ctr++;
+	    }
+        }
+
+	//delete times in the list in case of threshold limit
+        if(clipmapwithrealtime.size() == CVR_THRESHHOLD_COUNT) {
+	    int ctr = 0;
+	    while(ctr < CVR_THRESHHOLD_COUNT) {
+	        std::map<std::string,std::chrono::system_clock::time_point>::iterator it2 = clipmapwithrealtime.begin();
+	        RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) Erasing %s->%llu clip->realtime from map\n",
+                    __FUNCTION__ , __LINE__, (*it2).first.c_str(),(*it2).second);
+	        clipmapwithrealtime.erase(it2);
+	        ctr++;
+	    }
+        }
+
+
         STRNCPY(data.clip_name, filename, MAX_STREAM_NAME_LEN);
         data.clip_name[MAX_STREAM_NAME_LEN -1] = '\0';
         std::string clipName(filename);
-        queueclipName.push_back(clipName);
+
+        //Insert new clip in map
+	std::map<uint64_t, std::string>::iterator it;
+	it = clipmapwithtimecode.find(frameData.frame_timestamp);
+	if (it == clipmapwithtimecode.end())
+	{
+            for ( auto& x: clipmapwithtimecode) 
+	        RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Insert  Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
+	    clipmapwithtimecode.insert(std::pair<uint64_t, std::string>(frameData.frame_timestamp, clipName));
+            for ( auto& x: clipmapwithtimecode) 
+                RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","After Insert Pending clips: clipName - %s timecode - %llu\n", x.second.c_str(), x.first);
+	}
+
+        //Insert time at which first frame of clip was pushed
+	std::map<std::string,std::chrono::system_clock::time_point>::iterator it2;
+        time_now = std::chrono::system_clock::now();
+	it2 = clipmapwithrealtime.find(clipName);
+	if (it2 == clipmapwithrealtime.end())
+	{
+            for ( auto& x: clipmapwithrealtime)
+	        RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","Before Insert  time : clipName - %s realtime - %llu\n", x.first.c_str(), std::chrono::duration_cast<std::chrono::milliseconds>(x.second.time_since_epoch()).count());
+	    clipmapwithrealtime.insert(std::pair<std::string,std::chrono::system_clock::time_point>(clipName,time_now));
+            for ( auto& x: clipmapwithrealtime)
+                RDK_LOG(RDK_LOG_DEBUG,"LOG.RDK.CVR","After Insert time : clipName - %s realtime - %llu\n", x.first.c_str(), std::chrono::duration_cast<std::chrono::milliseconds>(x.second.time_since_epoch()).count());
+	}
+
+
 	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs clip to server : %s \n", __FILE__, __LINE__,clipName.c_str());
         RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "Setting the Key Frame flag (very first frame)\n");
         if ( (frameData.pic_type == 1) || (frameData.pic_type == 2))
@@ -1084,41 +1122,11 @@ int kvsUploadFrames(unsigned short& clip_audio, unsigned short& kvsclip_highmem,
 
             //Iterate and comapre clip map and clip queue for clip name and send failure notification
             //Also Flush the clip except the latest one
-#if 0
-            std::string beforequeueclip;
-	    for (unsigned i=0; i<queueclipName.size(); i++)
-	    {
-	        std::cout << "\n Before deletion : " << ' ' << queueclipName.at(i) << " " << "\n";
-	    }
-#endif
-            std::string queueclip;
-            int size= queueclipName.size();
-            for (int i = 0; i < size-1; i++) {
-                queueclip = queueclipName.front();
-		std::map<uint64_t, std::string>::iterator it = clipmapwithtimecode.begin();
-		for (it=clipmapwithtimecode.begin(); it!=clipmapwithtimecode.end(); ++it) {
-		    if ( queueclip == it->second ) {
-                       RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Erasing clip %s found in map\n",__FILE__, __LINE__,queueclip.c_str());
-                       clipmapwithtimecode.erase (it);
-		    }
-                }
-                queueclipName.pop_front();
-                callbackObj->onUploadError(queueclip.c_str(),"failed");
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): kvsclip upload unsuccessful %s\n",__FILE__, __LINE__,queueclip.c_str());
-            }
-
-#if 0
-	    for (unsigned i=0; i<queueclipName.size(); i++)
-	    {
-	        std::cout << "\n After deletion : " << ' ' << queueclipName.at(i) << " "  << "\n";
-	    }
-#endif
             //In poor network condition hang seen with kinesisVideoStreamUninitSync api
             //kinesisVideoStreamUninitSync(&data);
             //reset_stream(&data); //TBD
             return 1;
         }
-        data.clip_senttokvssdk_time = std::chrono::system_clock::now();
     } else {
         single_clip_size += buffer_size;
         if ( (frameData.pic_type == 1) || (frameData.pic_type == 2)) {

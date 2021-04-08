@@ -128,11 +128,6 @@ extern "C"
 
 #define OPTIMIZED_VIDEO_PROFILE_FILE      "/opt/usr_config/OptimizedVideoProfile_Enable.txt"
 
-/* Enable run time debug logging */
-static int enable_debug = 0;
-#define RDK_LOG_DEBUG1 (enable_debug ? (RDK_LOG_INFO) : (RDK_LOG_DEBUG))
-#define ENABLE_CVR_RDK_DEBUG_LOG_FILE     "/tmp/.enable_cvr_rdk_debug"
-
 // to dump the h264 file into a file, please make the DEBUG_DUMP_H264 to '1'
 #define DEBUG_DUMP_H264 0
 
@@ -245,8 +240,6 @@ class CVR : public kvsUploadCallback
       EventType event_type;
       time_t event_datetime; //record the time that event happened.
       time_t cvr_starttime;
-      char starttime[200];
-      char endtime[200];
       struct timespec start_t;
       struct timespec end_t;
       uint8_t  motion_statistics_info[VIDEO_DURATION_MAX + 8];
@@ -268,8 +261,6 @@ class CVR : public kvsUploadCallback
       int hwtimer_fd;
       static int local_stream_err;
       int file_len;       //duration of each file seconds
-      int file_num; //number of files in m3u8 file
-      int file_format; // file format : TS, MP4
       int has_an_iframe;
       int target_duration;
       unsigned int sequence;
@@ -284,7 +275,6 @@ class CVR : public kvsUploadCallback
       XStreamerConsumer objConsumer;
       frameInfoH264 *cvr_frame;
       frameInfoH264 *cvr_key_frame;
-      curlInfo p_CurlInfo;
       stream_hal_stream_config _videoConfig;
       int32_t _streamFd;
 
@@ -337,10 +327,9 @@ class CVR : public kvsUploadCallback
 #endif
         bool iskvsInitDone;
         bool iskvsStreamInitDone;
-        unsigned short contentchangestatus;
         std::map<long long int, EventType> eventMap;
         cvr_clip_status_t clipStatus;
-        uint64_t  m_storageMem;
+        uint64_t m_storageMem;
 
         void sort_od_frame_data();
         void pop_od_frame_data(int *top);
@@ -349,14 +338,10 @@ class CVR : public kvsUploadCallback
         int reset_od_frame_data();
         int stringify_od_frame_data();
         bool check_enabled_rfc_feature(char* rfc_feature_fname,char* rfc_feature);
-
-        bool pushFrames(frameInfoH264* frameInfo,
+        bool createkvsstream(int stream_id, unsigned short recreateflag);
+        int pushFrames(frameInfoH264* frameInfo,
                 char* fileName,
-                int stream_id,
-                unsigned short kvsclip_audio,
-                EventType eventType = EVENT_TYPE_MAX,
-                bool isEOF = false,
-                bool doInit = false);
+                bool isEOF = false);
         void onUploadSuccess(char* recName);
         void onUploadError(char* recName, const char* streamStatus);
     public:
@@ -366,7 +351,6 @@ class CVR : public kvsUploadCallback
       void do_cvr(void * pCloudRecorderInfo);
       int cvr_close();
       static volatile sig_atomic_t term_flag;
-      static int  isCVREnabled;
       static void self_term(int sig);
       static volatile sig_atomic_t reload_cvr_flag;
       static volatile sig_atomic_t reload_cvr_config;
