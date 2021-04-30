@@ -1368,7 +1368,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
     unsigned short lenableaudio = kvsclip_audio;
     int pushframestatus = 0;
-
+    unsigned long iFrametimestamp =0;
     while (!term_flag)
     {
         /* reset all motion level(no motion, low motion, medium motion, high motion) counters */
@@ -1612,6 +1612,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             has_an_iframe = 0;
             //Get the motion statistics information
             get_motion_statistics_info(cvr_key_frame, &frame_num_count, &event_type_raw, &motion_level_raw_sum);
+	    iFrametimestamp = cvr_key_frame->frame_timestamp;
         }
         while ((long)(file_len*1000 - compareTimestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
         {
@@ -1661,7 +1662,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     clock_gettime(CLOCK_REALTIME, &start_t);
                     start_msec = cvr_frame->frame_timestamp;
                     memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe_clipend=%lu\n", __FILE__, __LINE__, start_msec);
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe_clipend=%lu 1st and last iFrame time diff=%lu\n", __FILE__, __LINE__, start_msec, (start_msec - iFrametimestamp));
                     break;
                 }
                 if (!has_an_iframe)
@@ -1750,7 +1751,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                         clock_gettime(CLOCK_REALTIME, &start_t);
                         start_msec = cvr_frame->frame_timestamp;
                         memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe=%lu\n", __FILE__, __LINE__, start_msec);
+                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe=%lu 1st and last iFrame time diff=%lu\n", __FILE__, __LINE__, start_msec,(start_msec - iFrametimestamp));
                         break;
                     }
                     if (!has_an_iframe)
@@ -1824,12 +1825,18 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             cvr_get_event_info(&event_type,&event_datetime,cvr_starttime);
 
             if(RDKC_FAILURE != ret_videoStreamConfig) {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR configuration: StreamID Resolution(W*H) FrameRate BitRate %d %d*%d %d %d \n", __FILE__, __LINE__, (m_streamid & VIDEO_MASK), _videoConfig.width, _videoConfig.height, _videoConfig.frame_rate, _videoConfig.bit_rate);
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR configuration: StreamID Resolution(W*H) FrameRate BitRate GOP %d %d*%d %d %d %d\n", __FILE__, __LINE__, (m_streamid & VIDEO_MASK), _videoConfig.width, _videoConfig.height, _videoConfig.frame_rate, _videoConfig.bit_rate,_videoConfig.gov_length);
+            }
+	    memset(&_videoConfig, 0, sizeof (stream_hal_stream_config));
+            ret_videoStreamConfig = objConsumer.GetStreamConfig((m_streamid & VIDEO_MASK), &_videoConfig);
+            if( ret_videoStreamConfig < 0 ) {
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in retreving video stream configuration for stream %d \n", __FILE__, __LINE__, (m_streamid & 0x0F) );
             }
 
+
             totalFramesinClip = idrFrameCount + pFrameCount + bFrameCount + audioFrameCount;
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s clip frame stats :  idrFrameCount : %d, pFrameCount : %d, bFrameCount : %d, audioFrameCount : %d, totalFramesinClip : %d\n"
-                                , __FILE__, __LINE__,file_name, idrFrameCount,pFrameCount,bFrameCount,audioFrameCount, totalFramesinClip);
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s clip frame stats : avgbitRate : %d GOP: %d  idrFrameCount : %d, pFrameCount : %d, bFrameCount : %d, audioFrameCount : %d, totalFramesinClip : %d\n"
+                                , __FILE__, __LINE__,file_name, _videoConfig.bit_rate,_videoConfig.gov_length,idrFrameCount,pFrameCount,bFrameCount,audioFrameCount, totalFramesinClip);
             idrFrameCount = 0;
             pFrameCount = 0;
             bFrameCount = 0;

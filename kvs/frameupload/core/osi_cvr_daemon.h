@@ -92,7 +92,7 @@ extern "C"
 #define CVR_SUCCESS			 0
 
 #define CVR_CLIP_PATH                    "/tmp/cvr"
-#define CVR_CLIP_DURATION              	 15   //seconds
+#define CVR_CLIP_DURATION              	 16   //seconds
 #define CVR_CLIP_NUMBER                	 2
 #define CVR_FILE_PATH_LEN                256
 
