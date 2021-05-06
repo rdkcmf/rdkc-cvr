@@ -86,7 +86,7 @@ int time_difference = 15000;
 #define DEFAULT_FRAGMENT_ACKS TRUE
 #define DEFAULT_RESTART_ON_ERROR TRUE
 #define DEFAULT_RECALCULATE_METRICS TRUE
-#define DEFAULT_STREAM_FRAMERATE 25
+#define DEFAULT_STREAM_FRAMERATE 10
 #define DEFAULT_AVG_BANDWIDTH_BPS (4 * 1024 * 1024)
 #define DEFAULT_BUFFER_DURATION_SECONDS 60
 #define DEFAULT_REPLAY_DURATION_SECONDS 40
@@ -1211,13 +1211,24 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
         }
     } else {
         single_clip_size += buffer_size;
-        if ( (frameData.pic_type == 1) || (frameData.pic_type == 2)) {
-            RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ IFRAME_ENCODER ] Timestamp %llu : \n", __FILE__, __LINE__,frametimestamp_nano );
-        } else if ( frameData.pic_type == 3 ) {
-            RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ PFRAME_ENCODER ] Timestamp %llu : \n", __FILE__, __LINE__,frametimestamp_nano );
-        } if( frameData.stream_type == 10 ) {
-            track_id = 2 ;
-            RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ AUDIO_ENCODER ] Timestamp %llu : \n", __FILE__, __LINE__,frametimestamp_nano );
+        if( 0 == data.useEpochTimeStamp) {
+            if ( (frameData.pic_type == 1) || (frameData.pic_type == 2)) {
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ IFRAME_ENCODER ] Timestamp %llu : \n", __FILE__, __LINE__,frametimestamp_nano );
+            } else if ( frameData.pic_type == 3 ) {
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ PFRAME_ENCODER ] Timestamp %llu : \n", __FILE__, __LINE__,frametimestamp_nano );
+            } if( frameData.stream_type == 10 ) {
+                track_id = 2 ;
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ AUDIO_ENCODER ] Timestamp %llu : \n", __FILE__, __LINE__,frametimestamp_nano );
+            }
+        } else {
+            if ( (frameData.pic_type == 1) || (frameData.pic_type == 2)) {
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ IFRAME_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,ftsmillis );
+            } else if ( frameData.pic_type == 3 ) {
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ PFRAME_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,ftsmillis );
+            } if( frameData.stream_type == 10 ) {
+                track_id = 2 ;
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ AUDIO_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,ftsmillis );
+            }
         }
         
         if (!put_frame(data.kinesis_video_stream, (void*)frameData.frame_ptr, std::chrono::nanoseconds(frametimestamp_nano),
