@@ -88,7 +88,6 @@ CVR::CVR(): init_flag(0),
 #ifdef RTMSG
 	event_quiet_time(DEFAULT_EV_QUIET_TIME),
 #endif
-	clipStatus(CVR_CLIP_GEN_UNKNOWN),
 	ccode(0),
 	cvr_flag(0),
 	hwtimer_fd(-1),
@@ -100,7 +99,8 @@ CVR::CVR(): init_flag(0),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
 	kvsclip_highmem(0),
-	m_storageMem(0)
+	m_storageMem(0),
+        useEpochTimeStamp(0)
 {
 #ifdef RTMSG
 	rtmessageCVRThreadExit = false;
@@ -830,6 +830,11 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
     cvr_enable_audio(true);
 #endif
     createkvsstream((m_streamid & 0x0F),0);
+    char* useEpoch = NULL;
+    if (NULL !=(useEpoch = getenv("USE_EPOCH"))) {
+        useEpochTimeStamp = atoi(useEpoch);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): cvr init with epochtimestamp - %d\n", __FILE__, __LINE__, useEpochTimeStamp);
+    }
 }
 
 /**
@@ -839,8 +844,6 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
  */
 void CVR::notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fname)
 {
-	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): upload file base name:%s\n",__FILE__, __LINE__, upload_fname);
-
 	rtMessage msg;
 	rtMessage_Create(&msg);
 	rtMessage_SetInt32(msg, "status", status);
@@ -855,10 +858,8 @@ void CVR::notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fnam
 	rtMessage_Release(msg);
 }
 
-void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_name, unsigned int event_ts = DEFAULT_EVT_TSTAMP)
+void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_name)
 {
-	char  str_event_ts[256];
-
 	if(!clip_name) {
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Empty clip name!!\n", __FILE__, __LINE__);
 		return;
@@ -868,6 +869,7 @@ void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_na
 	rtMessage_Create(&msg);
 	rtMessage_SetInt32(msg, "clipStatus", status);
 	rtMessage_SetString(msg, "clipname", clip_name);
+	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Sending CVR clip status to smart thumbnail, status code:%d, clip name:%s \n",__FILE__, __LINE__, status,clip_name);
 
 	rtError err = rtConnection_SendMessage(connectionSend, msg, "RDKC.CVR.CLIP.STATUS");
 	rtLog_Debug("SendRequest:%s", rtStrError(err));
@@ -1301,7 +1303,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             createkvsstream(( m_streamid & 0x0F ),1);
         }
 
-        clipStatus = CVR_CLIP_GEN_START;
  
         // Generate the file name base on the time
         tv = gmtime(&start_t.tv_sec);
@@ -1312,8 +1313,13 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         //notify smart thumbnail clip creation started
         if(smartTnEnabled)
         {
-            RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "Notifying the Clip Start to SMT with filename - %s\n", file_name);
-            notify_smt_TN_clipStatus(CVR_CLIP_GEN_START, file_name);
+            if(useEpochTimeStamp) {
+                std::thread clipstatusstartthread (notify_smt_TN_clipStatus,CVR_CLIP_GEN_START, file_name);
+                pthread_setname_np(clipstatusstartthread.native_handle(),"clipstatusstartthread");
+                clipstatusstartthread.detach();
+            } else {
+                notify_smt_TN_clipStatus(CVR_CLIP_GEN_START, file_name);
+            }
         }
 
         if (has_an_iframe)
@@ -1385,7 +1391,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 else if (0 == ccode)
                 {
-					if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame.pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame.pic_type)
+		    if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame.pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame.pic_type)
 							&& (long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
                     {
                         //This I frame is almost at the end of clip file, we'll keep it, to write into next clip file.
@@ -1564,6 +1570,17 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             }
         }
 
+        //if local stream error is met while creating clip discard the clip sine it's an incomplete ts clip
+        if( 0 == local_stream_err ) {
+            if(smartTnEnabled) {
+                notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name);
+            }
+            if(kvsclip_audio)
+            {
+                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s kvs clip has audio\n", __FILE__, __LINE__, file_name);
+            }
+        }
+
         if (!term_flag)
         {
             if(v_stream_conf) {
@@ -1589,32 +1606,9 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             totalFramesinClip = 0;
             strcpy(fileName, file_name);
 
-            //if local stream error is met while creating clip discard the clip sine it's an incomplete ts clip
-            if( 0 == local_stream_err ) {
-                long long int fileIndex = atoll(file_name);
-                if(smartTnEnabled)
-                {
-                    notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name);
-                    pushframestatus = pushFrames(cvr_frame, file_name, true);
-                    if ( 1 == pushframestatus ) {
-                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                    }
-                }
-                else
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Smart thumbnail disabled. Pushing frames\n", __FILE__, __LINE__);
-                    pushframestatus = pushFrames(cvr_frame, file_name, true);
-                    if ( 1 == pushframestatus ) {
-                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                    }
-                }
-
-                if(kvsclip_audio)
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s kvs clip has audio\n", __FILE__, __LINE__, file_name);
-                }
-
-                clipStatus = CVR_CLIP_GEN_END;
+            pushframestatus = pushFrames(cvr_frame, file_name, true);
+            if ( 1 == pushframestatus ) {
+                   RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
             }
         }
         else
@@ -1849,8 +1843,13 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         //notify smart thumbnail clip creation started
         if(smartTnEnabled)
         {
-            RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "Notifying the Clip Start to SMT with filename - %s\n", file_name);
-            notify_smt_TN_clipStatus(CVR_CLIP_GEN_START, file_name);
+            if(useEpochTimeStamp) {
+                std::thread clipstatusstartthread (notify_smt_TN_clipStatus,CVR_CLIP_GEN_START, file_name);
+                pthread_setname_np(clipstatusstartthread.native_handle(),"clipstatusstartthread");
+                clipstatusstartthread.detach();
+            } else {
+                notify_smt_TN_clipStatus(CVR_CLIP_GEN_START, file_name);
+            }
         }
 
         if (has_an_iframe)
@@ -2029,10 +2028,15 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
 
             //if local stream error is met while creating clip discard the clip sine it's an incomplete ts clip
             if( 0 == local_stream_err ) {
-                long long int fileIndex = atoll(file_name);
                 if(smartTnEnabled)
                 {
-                    notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name);
+                    if(useEpochTimeStamp) {
+                        std::thread clipstatusendthread (notify_smt_TN_clipStatus,CVR_CLIP_GEN_END, file_name);
+                        pthread_setname_np(clipstatusendthread.native_handle(),"clipstatusendthread");
+                        clipstatusendthread.detach();
+                    } else {
+                        notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name);
+                    }
 
                     pushframestatus = pushFrames(cvr_frame, file_name, true);
                     if ( 1 == pushframestatus ) {

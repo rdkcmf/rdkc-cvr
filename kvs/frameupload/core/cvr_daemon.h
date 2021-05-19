@@ -210,11 +210,12 @@ class CVR : public kvsUploadCallback
       //Callback function for topics on dynamic Logging
       static void on_message_dyn_log(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure);
       static void receive_rtmessage();
-      static void notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_name,  unsigned int event_ts = DEFAULT_EVT_TSTAMP);
+      static void notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_name);
       time_t event_quiet_time;
 #endif
       bool iskvsInitDone;
       bool iskvsStreamInitDone;
+      bool useEpochTimeStamp;
       cvr_clip_status_t clipStatus;
       uint64_t m_storageMem;
       bool check_enabled_rfc_feature(char* rfc_feature_fname,char* rfc_feature);

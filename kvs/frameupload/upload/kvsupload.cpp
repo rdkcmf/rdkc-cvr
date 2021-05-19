@@ -910,29 +910,33 @@ void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nano
     }
 
     if(data.useEpochTimeStamp) {
-        static uint64_t videolastframetimestamp_prevsegment = 0LL;
-        static uint64_t audiolastframetimestamp_prevsegment = 0LL;
-        static uint64_t firstframetimestamp_nextsegment = 0LL;
-        uint64_t videotimediff = 0LL;
-        uint64_t audiotimediff = 0LL;
+        static uint64_t videolastframetimestamp_prevsegment = 0ULL;
+        static uint64_t audiolastframetimestamp_prevsegment = 0ULL;
+        static uint64_t firstframetimestamp_nextsegment = 0ULL;
+        uint64_t videotimediff = 0ULL;
+        uint64_t audiotimediff = 0ULL;
 
         if(track_Id == 1) {
             if( FRAME_FLAG_KEY_FRAME == flags ) {
                 firstframetimestamp_nextsegment = timestamp;
-                videotimediff = (firstframetimestamp_nextsegment - videolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ VIDEO FRAME DIFF] Time diff between fist I Frame of next segment and last video frame of previous segment : %lld\n", __FILE__, __LINE__, videotimediff);
+                if (videolastframetimestamp_prevsegment > 0 ) {
+                    videotimediff = (firstframetimestamp_nextsegment - videolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
+                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ VIDEO FRAME DIFF] Time diff between fist I Frame of next segment and last video frame of previous segment : %lld\n", __FILE__, __LINE__, videotimediff);
+                }
+
                 if(data.gkvsclip_audio) {
-                    audiotimediff = (firstframetimestamp_nextsegment - audiolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ AUDIO FRAME DIFF] Time diff between fist I Frame of next segment and last audio frame of previous segment : %lld\n", __FILE__, __LINE__, audiotimediff);
+                    if (audiolastframetimestamp_prevsegment > 0 ) {
+                        audiotimediff = (firstframetimestamp_nextsegment - audiolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
+                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ AUDIO FRAME DIFF] Time diff between fist I Frame of next segment and last audio frame of previous segment : %lld\n", __FILE__, __LINE__, audiotimediff);
+                    }
+                } else {
+                    videolastframetimestamp_prevsegment = timestamp;
                 }
             } else {
-                videolastframetimestamp_prevsegment = timestamp;
+                audiolastframetimestamp_prevsegment = timestamp;
             }
-        } else {
-            audiolastframetimestamp_prevsegment = timestamp;
         }
     }
-
     frame->flags = flags;
     if(data.useEpochTimeStamp) {
         frame->decodingTs = static_cast<UINT64> (timestamp / DEFAULT_TIME_UNIT_IN_NANOS);
@@ -1055,46 +1059,48 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
     std::chrono::system_clock::time_point time_now;
     uint64_t fts;
     uint64_t ftsmillis;
-
-    if( data.gkvsclip_highmem != cliphighmem )
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d\n", __FILE__, __LINE__, data.gkvsclip_highmem,cliphighmem);
-        return 1;
-    }
-
-    if( isstreamerror_reported )
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, isstreamerror_reported);
-        isstreamerror_reported = false;
-        return 1;
-    }
-
-    if( frame_dropped_flag )
-    {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Resetting stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
-        frame_dropped_flag = 0;
-        frame_dropped_count = 0;
-        bool status = reset_stream(&data);
-        if ( false == status ) {
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in resetting stream : stream recreation will happen\n", __FILE__, __LINE__);
+    int retstatus=0;
+    size_t buffer_size=0;
+    if(false == isEOF) {
+        if( data.gkvsclip_highmem != cliphighmem )
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d\n", __FILE__, __LINE__, data.gkvsclip_highmem,cliphighmem);
             return 1;
         }
-    }
 
-    int retstatus=0;
-    size_t buffer_size = frameData.frame_size;
-    if (!data.stream_started)
-    {
-        if(data.gkvsclip_audio) {
-            data.kinesis_video_stream->start(std::string(DEFAULT_CODECID_AACAUDIO),DEFAULT_AUDIO_TRACKID);
+        if( isstreamerror_reported )
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, isstreamerror_reported);
+            isstreamerror_reported = false;
+            return 1;
         }
-        data.stream_started = true;
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Streaming Started \n", __FILE__, __LINE__);
+
+        if( frame_dropped_flag )
+        {
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Resetting stream : consecutive video clips failing flag as TRUE : %d frame_dropped_count: %d \n", __FILE__, __LINE__, frame_dropped_flag,frame_dropped_count);
+            frame_dropped_flag = 0;
+            frame_dropped_count = 0;
+            bool status = reset_stream(&data);
+            if ( false == status ) {
+                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in resetting stream : stream recreation will happen\n", __FILE__, __LINE__);
+                return 1;
+            }
+        }
+
+        buffer_size = frameData.frame_size;
+        if (!data.stream_started)
+        {
+            if(data.gkvsclip_audio) {
+                data.kinesis_video_stream->start(std::string(DEFAULT_CODECID_AACAUDIO),DEFAULT_AUDIO_TRACKID);
+            }
+            data.stream_started = true;
+            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Streaming Started \n", __FILE__, __LINE__);
+         }
+         time_now = std::chrono::system_clock::now();
+         fts = std::chrono::duration_cast<std::chrono::nanoseconds>(time_now.time_since_epoch()).count();
+         ftsmillis = std::chrono::duration_cast<std::chrono::milliseconds>(time_now.time_since_epoch()).count();
     }
 
-    time_now = std::chrono::system_clock::now();
-    fts = std::chrono::duration_cast<std::chrono::nanoseconds>(time_now.time_since_epoch()).count();
-    ftsmillis = std::chrono::duration_cast<std::chrono::milliseconds>(time_now.time_since_epoch()).count();
     if(data.first_frame)
     {
 	//delete the files in the list in case of threshold limit
@@ -1222,12 +1228,12 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
             }
         } else {
             if ( (frameData.pic_type == 1) || (frameData.pic_type == 2)) {
-                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ IFRAME_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,ftsmillis );
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ IFRAME_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,fts );
             } else if ( frameData.pic_type == 3 ) {
-                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ PFRAME_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,ftsmillis );
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ PFRAME_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,fts );
             } if( frameData.stream_type == 10 ) {
                 track_id = 2 ;
-                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ AUDIO_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,ftsmillis );
+                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ AUDIO_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,fts );
             }
         }
         
