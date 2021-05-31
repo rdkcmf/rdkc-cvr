@@ -43,7 +43,8 @@ GstElement *pstcamerasrc = NULL;
 typedef enum camerasrc
 {
     CAMERA_V4L2_SRC = 1,
-    CAMERA_LIBCAMERA_SRC
+    CAMERA_LIBCAMERA_SRC,
+    CAMERA_PIPEWIRE_SRC
 }CAMERA_SRC;
 
 typedef struct cvr_gst_rpi
@@ -84,7 +85,7 @@ void load_default_cvr_gstreamer_value()
 
         stCvrGstRpi.framerate  = 30;
     }
-    else if( CAMERA_LIBCAMERA_SRC == encamerasrc )
+    else if( ( CAMERA_LIBCAMERA_SRC == encamerasrc ) || ( CAMERA_PIPEWIRE_SRC == encamerasrc ) )
     {
         stCvrGstRpi.width = 640;
         stCvrGstRpi.height = 480;
@@ -141,6 +142,10 @@ int main(int argc, char *argv[])
         {
             encamerasrc = CAMERA_LIBCAMERA_SRC;
         }
+	else if( 0 == strcmp( argv[1], "pipewiresrc") )
+        {
+            encamerasrc = CAMERA_PIPEWIRE_SRC;
+        }
     }
 
     load_default_cvr_gstreamer_value();
@@ -166,7 +171,7 @@ int main(int argc, char *argv[])
 /* {{{ start_stream() */
 void start_stream()
 {
-    GstElement *pipeline,*camerasrc,*filter,*h264enc,*h264parse,*kvssink;
+    GstElement *pipeline,*camerasrc,*filter,*h264enc,*h264parse,*kvssink,*videoconvert;
     GMainLoop  *loop;
     GstBus     *bus;
     GstCaps    *filtercaps;
@@ -175,6 +180,8 @@ void start_stream()
     char const *accessKey;
     char const *secretKey;
     char const *defaultRegion;
+
+    char bgstelementlink = 0;
 
     pipeline = gst_element_factory_make("pipeline","pipeline");
 
@@ -186,7 +193,13 @@ void start_stream()
     {
         pstcamerasrc = camerasrc = gst_element_factory_make("libcamerasrc","libcamerasrc");
     }
+    else if( CAMERA_PIPEWIRE_SRC == encamerasrc )
+    {
+        pstcamerasrc = camerasrc = gst_element_factory_make("pipewiresrc","pipewiresrc");
+    }
 
+    videoconvert = gst_element_factory_make("videoconvert","videoconvert");
+	    
     filter = gst_element_factory_make("capsfilter","filter");
 
     h264enc = gst_element_factory_make("omxh264enc","omxh264enc");
@@ -195,7 +208,7 @@ void start_stream()
 
     kvssink = gst_element_factory_make("kvssink","kvssink");
 
-    if ( !pipeline || !camerasrc || !filter || !h264enc || !h264parse || !kvssink)
+    if ( !pipeline || !camerasrc || !videoconvert || !filter || !h264enc || !h264parse || !kvssink)
     {
         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.GSTREAMER","%s(%d): Unable to make elements\n", __FILE__, __LINE__);
     }
@@ -206,9 +219,20 @@ void start_stream()
 
     gst_bus_add_watch(bus,(GstBusFunc) on_message, loop);
 
-    gst_bin_add_many(GST_BIN(pipeline),camerasrc,filter,h264enc,h264parse,kvssink,NULL);
+    if( CAMERA_PIPEWIRE_SRC == encamerasrc )
+    {
+        gst_bin_add_many(GST_BIN(pipeline),camerasrc,videoconvert,filter,h264enc,h264parse,kvssink,NULL);
 
-    if ( gst_element_link_many(camerasrc,filter,h264enc,h264parse,kvssink,NULL) )
+        bgstelementlink = gst_element_link_many(camerasrc,videoconvert,filter,h264enc,h264parse,kvssink,NULL);
+    }
+    else
+    {
+        gst_bin_add_many(GST_BIN(pipeline),camerasrc,filter,h264enc,h264parse,kvssink,NULL);
+
+        bgstelementlink = gst_element_link_many(camerasrc,filter,h264enc,h264parse,kvssink,NULL);
+    }
+
+    if( bgstelementlink )
     {
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.GSTREAMER","%s(%d):Element linking success for pipeline\n", __FILE__, __LINE__);
 
@@ -218,7 +242,7 @@ void start_stream()
 
     }
 
-    if( CAMERA_V4L2_SRC == encamerasrc )
+    if( ( CAMERA_V4L2_SRC == encamerasrc ) || ( CAMERA_PIPEWIRE_SRC == encamerasrc ) )
     {
         filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
                                       "width", G_TYPE_INT, stCvrGstRpi.width,
@@ -287,6 +311,8 @@ void start_stream()
 
     gst_element_set_state(h264enc,GST_STATE_READY);
 
+    gst_element_set_state(videoconvert,GST_STATE_READY);
+
     gst_element_set_state(camerasrc,GST_STATE_READY);
 
 
@@ -297,6 +323,8 @@ void start_stream()
     gst_element_set_state(filter,GST_STATE_READY);
 
     gst_element_set_state(h264enc,GST_STATE_NULL);
+
+    gst_element_set_state(videoconvert,GST_STATE_NULL);
 
     gst_element_set_state(camerasrc,GST_STATE_NULL);
 
@@ -314,11 +342,25 @@ void start_stream()
 
     }
 
-    gst_element_unlink_many(camerasrc,filter,h264enc,h264parse,kvssink,NULL);
+    if( CAMERA_PIPEWIRE_SRC == encamerasrc )
+    {
+        gst_element_unlink_many(camerasrc,videoconvert,filter,h264enc,h264parse,kvssink,NULL);
+    }
+    else
+    {
+        gst_element_unlink_many(camerasrc,filter,h264enc,h264parse,kvssink,NULL);
+    }
 
     gst_object_ref(camerasrc);
 
-    gst_bin_remove_many(GST_BIN(pipeline),kvssink,h264parse,h264enc,filter,camerasrc,NULL);
+    if( CAMERA_PIPEWIRE_SRC == encamerasrc )
+    {
+         gst_bin_remove_many(GST_BIN(pipeline),kvssink,h264parse,h264enc,filter,videoconvert,camerasrc,NULL);
+    }
+    else
+    {
+        gst_bin_remove_many(GST_BIN(pipeline),kvssink,h264parse,h264enc,filter,camerasrc,NULL);
+    }
 
     gst_object_unref(pipeline);
 
