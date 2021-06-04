@@ -132,7 +132,6 @@ class CVR : public kvsUploadCallback
       int cvr_read_config(cvr_provision_info_t *pCloudRecorderInfo);
       int cvr_enable_audio(bool val);
       int cvr_check_rfcparams();
-      int get_quiet_interval();
       void cvr_init_audio_stream();
       static int cvr_audio_status;
 

@@ -252,6 +252,7 @@ void CVR::on_message_dyn_log(rtMessageHeader const* hdr, uint8_t const* buff, ui
 void CVR::on_message_cvrStats(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure)
 {
 	char const*  status = NULL;
+	char const*  config = NULL;
 
 	rtConnection con = (rtConnection) closure;
 
@@ -266,8 +267,9 @@ void CVR::on_message_cvrStats(rtMessageHeader const* hdr, uint8_t const* buff, u
 	free(tempbuff);
 
 	rtMessage_GetString(req, "status", &status);
+	rtMessage_GetString(req, "config", &config);
 
-	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","(%s):%d status:%s\n", __FUNCTION__, __LINE__, status);
+	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","(%s):%d status:%s, config:%s\n", __FUNCTION__, __LINE__, status,config);
 
 	if(!strcmp(status, "refresh"))
 	{
@@ -1279,7 +1281,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
         rtConnection_Create(&connectionRecv, "CVR_RECV", "tcp://127.0.0.1:10001");
         rtConnection_AddListener(connectionRecv, "RDKC.CVR", on_message_cvr, NULL);
         rtConnection_AddListener(connectionRecv, "RDKC.SMARTTN.STATUS", on_message_smt_TN, NULL);
-        rtConnection_AddListener(connectionRecv, "RDKC.CONF.CVRSTATS.REFRESH", on_message_cvrStats, NULL);
+        rtConnection_AddListener(connectionRecv, "RDKC.CONF.REFRESH", on_message_cvrStats, NULL);
         rtConnection_AddListener(connectionRecv, "RDKC.ENABLE_DYNAMIC_LOG", on_message_dyn_log, connectionRecv);
 
         std::thread rtMessage_recv_thread (receive_rtmessage);
