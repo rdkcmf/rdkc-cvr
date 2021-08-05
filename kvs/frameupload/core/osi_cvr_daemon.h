@@ -183,6 +183,7 @@ class CVR : public kvsUploadCallback
       static bool rtmessageCVRThreadExit;
       //Callback function for topics on smart thumbnail 
       static void on_message_smt_TN(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure);
+      static void on_message_cvrconf(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure);
       //Callback function for topics on dynamic Logging
       static void on_message_dyn_log(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure);
       static void receive_rtmessage();
@@ -209,7 +210,7 @@ class CVR : public kvsUploadCallback
       static volatile sig_atomic_t term_flag;
       static void self_term(int sig);
       static volatile sig_atomic_t reload_cvr_flag;
-      static void reload_config(int dummy);
+      static void reload_config();
       void setCVRStreamId(int streamid);
       int getCVRStreamId();
       static void notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fname);

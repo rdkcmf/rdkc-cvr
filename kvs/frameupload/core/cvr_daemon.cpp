@@ -248,6 +248,42 @@ void CVR::on_message_smt_TN(rtMessageHeader const* hdr, uint8_t const* buff, uin
     rtMessage_Release(req);
 }
 
+/** @description:Callback function when the cvr configuration message is received
+ *  @param[in] hdr : pointer to rtMessage Header
+ *  @param[in] buff : buffer for data received via rt message
+ *  @param[in] n : number of bytes received
+ *  @return: void
+ */
+void CVR::on_message_cvrconf(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure)
+{
+	char const*  status = NULL;
+	char const*  config = NULL;
+
+	rtConnection con = (rtConnection) closure;
+
+	rtMessage req;
+	rtMessage_FromBytes(&req, buff, n);
+
+	char* tempbuff = NULL;
+	uint32_t buff_length = 0;
+
+	rtMessage_ToString(req, &tempbuff, &buff_length);
+	rtLog_Debug("Req : %.*s", buff_length, tempbuff);
+	free(tempbuff);
+
+	rtMessage_GetString(req, "status", &status);
+	rtMessage_GetString(req, "config", &config);
+
+	RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","(%s):%d status:%s, config:%s\n", __FUNCTION__, __LINE__, status,config);
+
+	if( (!strcmp(status, "refresh")) && (!strcmp(config, CLOUDRECORDER_CONFIG_FILE)) )
+	{
+	    reload_config();
+	}
+
+	rtMessage_Release(req);
+}
+
 /** @description: receive message
  *  @param[in]  :  void
  *  @return: void
@@ -744,6 +780,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
         rtConnection_Create(&connectionSend, "CVR_SEND", "tcp://127.0.0.1:10001");
         rtConnection_Create(&connectionRecv, "CVR_RECV", "tcp://127.0.0.1:10001");
         rtConnection_AddListener(connectionRecv, "RDKC.SMARTTN.STATUS", on_message_smt_TN, NULL);
+        rtConnection_AddListener(connectionRecv, "RDKC.CONF.REFRESH", on_message_cvrconf, NULL);
         rtConnection_AddListener(connectionRecv, "RDKC.ENABLE_DYNAMIC_LOG", on_message_dyn_log, connectionRecv);
 
         std::thread rtMessage_recv_thread (receive_rtmessage);
@@ -1312,6 +1349,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             {
                 break;
             }
+
             // reload cvr config
             if (reload_cvr_flag)
             {
@@ -1329,10 +1367,12 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 }
                 reload_cvr_flag = 0;
             }
+
             // CVR disabled
             if (iscvrenabled == 0)
             {
                 RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
+                term_flag = 1;
                 break;
             }
 
@@ -1850,6 +1890,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             if (iscvrenabled == 0)
             {
                 RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
+                term_flag = 1;
                 break;
             }
 
@@ -2099,7 +2140,7 @@ void CVR::self_term(int sig)
 }
 
 volatile sig_atomic_t CVR::reload_cvr_flag = 0;
-void CVR::reload_config(int dummy)
+void CVR::reload_config()
 {
         CVR::reload_cvr_flag = 1;
 }
