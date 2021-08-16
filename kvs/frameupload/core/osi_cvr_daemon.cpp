@@ -1255,7 +1255,7 @@ void CVR::self_term(int sig)
 }
 
 volatile sig_atomic_t CVR::reload_cvr_flag = 0;
-void CVR::reload_config(()
+void CVR::reload_config()
 {
         CVR::reload_cvr_flag = 1;
 }
