@@ -694,7 +694,7 @@ int CVR::pushFrames(frameInfoH264* frameInfo,
 					}
 					if ( write_bytes <= 0 ) {
 						RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR","%s(%d) :CVR:: errmsg(%d)=%s!\n", __FILE__, __LINE__, errno, strerror( errno ) );
-						break;
+						return false;
 					}
 					RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) :xStream CVR:: streamid %d stream_type %d pic_type %ld frame_num %ld frame_size %ld width %ld height %ld arm_pts %lld dsp_pts %lld \n", __FILE__, __LINE__, frameInfoTmp.stream_id, frameInfoTmp.stream_type, frameInfoTmp.pic_type, frameInfoTmp.frame_num, frameInfoTmp.frame_size, frameInfoTmp.width, frameInfoTmp.height, frameInfoTmp.arm_pts, frameInfoTmp.dsp_pts );
 					RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : AUDIO timestamp:%lu kvsclip_audio = %d\n",__FILE__, __LINE__,frameInfoTmp.frame_timestamp, kvsclip_audio);
@@ -716,7 +716,7 @@ int CVR::pushFrames(frameInfoH264* frameInfo,
 				write_bytes = fwrite( ( char * ) frameInfoTmp.frame_ptr, frameInfoTmp.frame_size, 1, fp );
 				if ( write_bytes <= 0 ) {
 					RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR","%s(%d) :CVR:: errmsg(%d)=%s!\n", __FILE__, __LINE__, errno, strerror( errno ) );
-					break;
+					return false;
 				}
 				RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) :xStream CVR:: streamid %d stream_type %d pic_type %ld frame_num %ld frame_size %ld width %ld height %ld arm_pts %lld dsp_pts %lld \n", __FILE__, __LINE__, frameInfoTmp.stream_id, frameInfoTmp.stream_type, frameInfoTmp.pic_type, frameInfoTmp.frame_num, frameInfoTmp.frame_size, frameInfoTmp.width, frameInfoTmp.height, frameInfoTmp.arm_pts, frameInfoTmp.dsp_pts );
 				RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : VIDEO timestamp:%lu, kvsclip_audio = %d\n",__FILE__, __LINE__,frameInfoTmp.frame_timestamp, kvsclip_audio);
