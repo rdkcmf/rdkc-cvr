@@ -66,11 +66,15 @@ extern "C"
 #endif
 
 #include "polling_config.h"
+
+#if !defined ( CVR_PLATFORM_RPI )
 #include "event_config.h"   //EventType
 #include "AUD_conf.h"	//AUD_Conf
 #include "main.h"   //ReadAllConf
 #include "iav_ioctl.h" //IAV_PIC_TYPE_I_FRAME
 #include "cgi_image.h"	//set_audio_mic_enable_2
+#endif
+
 #include "rdk_debug.h"
 #include "dev_config.h"
 #ifdef __cplusplus
@@ -128,6 +132,31 @@ typedef enum {
     CVR_UPLOAD_MAX,
     CVR_UPLOAD_CURL_ERR
 }cvr_upload_status;
+
+#if defined ( CVR_PLATFORM_RPI )
+typedef struct RDKC_FrameInfo
+{
+        u16 stream_id;                  // 0~3
+        u16 stream_type;                // Refer to RDKCStreamType
+        u32 pic_type;                   // 0=MJPEG 1=IDR 2=I 3=P 4=B 5=JPEG_STREAM 6=JPEG_THUMBNAIL
+        u32 frame_ptr;                  // The frame buffer pointer
+        u32 frame_num;                  // The frame number, audio and video will have individual seq num
+        u32 frame_size;
+        u32 frame_timestamp;            // Frame timestamp, in milliseconds
+        u32 jpeg_quality;               // 1~100, only when steam_type is MJPEG.
+        u32 width;
+        u32 height;
+        u64 arm_pts;
+        u64 dsp_pts;
+        u16 padding_len;
+        u32 padding_ptr;
+        u8 reserved[6];
+} RDKC_FrameInfo;
+
+typedef struct All_Conf
+{
+}All_Conf;
+#endif
 
 class CVR : public kvsUploadCallback
 {
@@ -243,5 +272,9 @@ class CVR : public kvsUploadCallback
       void setCVRStreamId(int streamid);
       int getCVRStreamId();
       static void notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fname);
+
+#if defined ( CVR_PLATFORM_RPI )
+      void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_name);
+#endif
 };
 #endif

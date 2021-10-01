@@ -21,6 +21,10 @@
 #ifndef _KVS_UPLOAD_CALLBACK_API_H
 #define _KVS_UPLOAD_CALLBACK_API_H
 
+#if defined ( CVR_PLATFORM_RPI ) && defined ( ENABLE_CVR_WITH_PIPEWIRE )
+int PIP_CVR_FlagcreationBasedonframe( char *Framedata );
+#endif
+
 class kvsUploadCallback
 {
 	public:
