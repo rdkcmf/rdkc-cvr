@@ -43,6 +43,14 @@
 #include "xStreamerConsumer.h"
 #endif
 
+#if defined ( CVR_PLATFORM_RPI )
+#include "cvr_daemon.h"
+#endif
+
+#if defined ( ENABLE_PIPEWIRE )
+#include "pwstream.h"
+#endif
+
 using namespace std;
 using namespace std::chrono;
 using namespace com::amazonaws::kinesis::video;
@@ -53,7 +61,10 @@ using namespace std::chrono;
 extern "C" {
 #endif
 
+#if !defined ( CVR_PLATFORM_RPI )
 #include "event_config.h"
+#endif
+
 #include "sysUtils.h"
 
 long compute_stats();
@@ -710,6 +721,20 @@ static void kinesisVideoInit(CustomData *data)
 
     LOG_INFO("kinesisVideoInit defaultRegion = " << defaultRegionStr);
 
+#if defined ( CVR_PLATFORM_RPI )
+    //cache callback
+    unique_ptr<DefaultCallbackProvider>
+        cachingEndpointOnlyCallbackProvider = make_unique<CachingEndpointOnlyCallbackProvider>(
+                move(client_callback_provider),
+                move(stream_callback_provider),
+                move(credential_provider),
+                defaultRegionStr,
+                "",
+                "",
+                "",
+                "",
+                DEFAULT_CACHE_TIME_IN_SECONDS);
+#else
     //cache callback
     unique_ptr<DefaultCallbackProvider>
         cachingEndpointOnlyCallbackProvider = make_unique<CachingEndpointOnlyCallbackProvider>(
@@ -722,6 +747,7 @@ static void kinesisVideoInit(CustomData *data)
                 "",
                 "",
                 std::chrono::seconds(DEFAULT_CACHE_TIME_IN_SECONDS));
+#endif
 
     data->kinesis_video_producer = KinesisVideoProducer::createSync(move(device_info_provider),
             move(cachingEndpointOnlyCallbackProvider));
@@ -950,6 +976,7 @@ void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nano
     frame->size = static_cast<UINT32>(len);
     frame->frameData = reinterpret_cast<PBYTE>(parsedframedata);
     frame->trackId = track_Id;
+
 }
 
 static bool put_frame(shared_ptr<KinesisVideoStream> kinesis_video_stream, char* data, const nanoseconds &pts, const nanoseconds &dts,
@@ -1183,6 +1210,17 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
         }
     }
 
+#if defined ( ENABLE_PIPEWIRE ) && defined ( CVR_PLATFORM_RPI )
+    if( ( PWS_PIC_TYPE_IDR_FRAME == frameData.pic_type ) || ( PWS_PIC_TYPE_I_FRAME == frameData.pic_type ) )
+    {
+        kinesis_video_flags = FRAME_FLAG_KEY_FRAME;
+    }
+    else
+    {
+        kinesis_video_flags = FRAME_FLAG_NONE;
+    }
+#endif
+
     //stream type 10 is as per "RDKC_FrameInfo" structure which indicates aac data
     if( frameData.stream_type == 10 )
     {   
@@ -1236,7 +1274,7 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
                 RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): [ AUDIO_ENCODER_PRODUCER_TS ] Timestamp %llu : \n", __FILE__, __LINE__,fts );
             }
         }
-        
+
         if (!put_frame(data.kinesis_video_stream, (void*)frameData.frame_ptr, std::chrono::nanoseconds(frametimestamp_nano),
                     std::chrono::nanoseconds(frametimestamp_nano), kinesis_video_flags, buffer_size, track_id, fts)) {
             //log every minute
@@ -1264,3 +1302,4 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
     }
     return retstatus;
 }
+

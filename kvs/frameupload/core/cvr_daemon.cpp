@@ -24,6 +24,12 @@
 #include "breakpadwrap.h" 
 #endif
 
+#if defined ( ENABLE_PIPEWIRE )
+#include "pwstream.h"
+struct pws_data pwsdata = { 0 };
+pws_frameInfo frame_info = { 0 };
+#endif
+
 #ifdef XCAM2
 extern "C"{
  #include "streamUtils.h"
@@ -36,6 +42,7 @@ extern "C"{
 #define KVSINITMAXRETRY         5
 #define EVENT_THRESHHOLD_COUNT  4
 #define KVS_SMARTRC "RFC_ENABLE_XCAM2_SMARTRC"
+
 int CVR::cvr_audio_status = CVR_AUDIO_UNKNOWN;
 char fileName[256] = {0};
 #ifdef RTMSG
@@ -173,6 +180,7 @@ unsigned long CVR::amba_hwtimer_msec(int fd)
  *  @param[in] n : number of bytes received
  *  @return: void
  */
+#if RTMSG
 void CVR::on_message_dyn_log(rtMessageHeader const* hdr, uint8_t const* buff, uint32_t n, void* closure)
 {
         char const*  module = NULL;
@@ -299,6 +307,7 @@ void CVR::receive_rtmessage()
 	    usleep(10000);
     }
 }
+#endif /* RTMSG */
 
 /** @description: getting audio streamm id
  *  @param[in] audio_index - int 
@@ -308,6 +317,8 @@ int CVR::get_audio_stream_id(int audio_index)
 {
         int i = 0;
         int ret = -1;
+
+#if !defined ( CVR_PLATFORM_RPI )
         AUD_Conf aconf;
 
         if (audio_index < AUDIO_STREAM_INDEX_0 || audio_index >= AUDIO_STREAM_INDEX_MAX) {
@@ -345,6 +356,7 @@ int CVR::get_audio_stream_id(int audio_index)
                         }
                 }
         }
+#endif /* CVR_PLATFORM_RPI */
 
         return ret;
 
@@ -354,6 +366,7 @@ int CVR::get_audio_stream_id(int audio_index)
  *  @param[in] pCloudRecorderInfo : cvr_provision_info_t pointer
  *  @return: int
  */
+#if !defined ( CVR_PLATFORM_RPI )
 int CVR::cvr_read_config(cvr_provision_info_t *pCloudRecorderInfo)
 {
         // Read cloud recorder server info
@@ -488,6 +501,7 @@ int CVR::cvr_enable_audio(bool val)
         return 0;
 
 }
+#endif /* CVR_PLATFORM_RPI */
 
 /** @description: Initialize audio stream
  *  @param[in] void
@@ -698,6 +712,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
                 return RDKC_FAILURE;
         }
 
+#if !defined ( CVR_PLATFORM_RPI )
         // Init hwtimer, we need a timestamp which from the same source of video/audio frame timestamp
         hwtimer_fd = CVR::amba_hwtimer_init();
 	RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): amba_hwtimer_init success\n", __FILE__, __LINE__);
@@ -710,6 +725,8 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
 
         kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
         kvsclip_highmem = atoi(argv[2]);    /* highmem flag */
+#endif
+
 #ifdef XCAM2 
         if (argc == 4)
         {
@@ -790,6 +807,8 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
 
         // Check camera has polling cvr config from server?
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Wait for xfinity polling config done.Timeout is %d seconds.\n", __FILE__, __LINE__, check_polling_config_timeout);
+
+#if !defined ( CVR_PLATFORM_RPI )
         while (check_polling_config_timeout > 0 && !term_flag)
         {
                 if (0 == access(XFINITY_POLLING_SEQ_FILE, F_OK))
@@ -809,6 +828,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
 	{
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Read Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
 	}
+#endif /* CVR_PLATFORM_RPI */
 
 	/* initialise cvr upload */
         rdk_logger_init("/etc/debug.ini");
@@ -819,15 +839,18 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
                 system(cmd);
         }
     /* Permanently enabling audio in the device */
-#ifndef _HAS_XSTREAM_
+#if !defined ( _HAS_XSTREAM_ ) && !defined  ( CVR_PLATFORM_RPI )
     cvr_enable_audio(true);
 #endif
     createkvsstream((m_streamid & 0x0F),0);
+
     char* useEpoch = NULL;
     if (NULL !=(useEpoch = getenv("USE_EPOCH"))) {
         useEpochTimeStamp = atoi(useEpoch);
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): cvr init with epochtimestamp - %d\n", __FILE__, __LINE__, useEpochTimeStamp);
     }
+
+   return CVR_SUCCESS;
 }
 
 /**
@@ -837,6 +860,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
  */
 void CVR::notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fname)
 {
+#if !defined ( CVR_PLATFORM_RPI )
 	rtMessage msg;
 	rtMessage_Create(&msg);
 	rtMessage_SetInt32(msg, "status", status);
@@ -849,6 +873,7 @@ void CVR::notify_smt_TN_uploadStatus(cvr_upload_status status, char* upload_fnam
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) Error sending msg via rtmessage\n", __FILE__,__LINE__);
 	}
 	rtMessage_Release(msg);
+#endif
 }
 
 void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_name)
@@ -858,6 +883,7 @@ void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_na
 		return;
 	}
 
+#if !defined ( CVR_PLATFORM_RPI )
 	rtMessage msg;
 	rtMessage_Create(&msg);
 	rtMessage_SetInt32(msg, "clipStatus", status);
@@ -872,6 +898,7 @@ void CVR::notify_smt_TN_clipStatus(cvr_clip_status_t status, const char* clip_na
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) Error sending msg via rtmessage\n", __FILE__,__LINE__);
 	}
 	rtMessage_Release(msg);
+#endif /* CVR_PLATFORM_RPI */
 }
 
 /** @description: creates kvs stream
@@ -1070,6 +1097,7 @@ int CVR::pushFrames(RDKC_FrameInfo& frameInfo,
 #ifndef _HAS_XSTREAM_
 void CVR::do_cvr(void * pCloudRecorderInfo)
 {
+#if !defined ( CVR_PLATFORM_RPI )
     int ret = RDKC_FAILURE;
     int rdkc_ret = 1;
     unsigned short lessMemoryCount = 0; // to restrict the logging of low memory
@@ -1612,6 +1640,47 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Ending after term_flag enabled \n", __FILE__, __LINE__);
         }
     }
+#endif /* CVR_PLATFORM_RPI */
+
+#if defined ( ENABLE_PIPEWIRE )
+    while(1)
+    {
+        int pushframestatus = 0;
+
+        int retVal = pws_ReadFrame(&pwsdata , &frame_info );
+
+	if( RDKC_SUCCESS == retVal )
+	{
+            // Generate the file name base on the time
+
+            snprintf(file_name, sizeof(file_name),"%s","upload");
+
+            if( NULL == cvr_key_frame.frame_ptr )
+            {
+                cvr_key_frame.frame_ptr = (u32*)malloc(10);
+            }
+                
+	    cvr_key_frame.frame_ptr = (u32*)realloc(cvr_key_frame.frame_ptr,frame_info.frame_size);
+
+            if(cvr_key_frame.frame_ptr == NULL)
+            {
+                printf("%s(%d): Malloc for frameBuffer failed...\n", __FILE__, __LINE__);
+                return -1;
+            }
+
+	    memcpy( cvr_key_frame.frame_ptr, frame_info.frame_ptr, frame_info.frame_size);
+
+	    cvr_key_frame.frame_size = frame_info.frame_size;
+
+            cvr_key_frame.frame_timestamp = frame_info.frame_timestamp;
+
+	    cvr_key_frame.pic_type = frame_info.pic_type;
+
+            pushframestatus = pushFrames(cvr_key_frame, file_name);
+
+	}
+    }
+#endif /* ENABLE_PIPEWIRE */
 }
 #else
 void CVR::do_cvr(void * pCloudRecorderInfo)
@@ -2121,11 +2190,17 @@ int CVR::cvr_close()
                 cvr_flag &= ~RDKC_STREAM_FLAG_VIDEO ;
             }
 #endif //_HAS_XSTREAM_
+
+#if defined ( ENABLE_PIPEWIRE )
+	    pws_StreamClose(&pwsdata,&frame_info);
+#endif /* ENABLE_PIPEWIRE */
         }
 
+#if !defined ( CVR_PLATFORM_RPI )
         // Close hwtimer
         CVR::amba_hwtimer_exit(hwtimer_fd);
 		hwtimer_fd = -1;
+#endif /* CVR_PLATFORM_RPI */
 
         unlink(LOCK_FILENAME_CVR_DAEMON);
         return 0;
@@ -2176,6 +2251,10 @@ int main(int argc, char *argv[])
 	if(CVR_FAILURE == ret) {
 		goto error_exit;
 	}
+
+#if defined ( ENABLE_PIPEWIRE )
+	pws_StreamInit( &pwsdata );
+#endif
 
 	cvr_object.do_cvr(&CloudRecorderInfo);
 
