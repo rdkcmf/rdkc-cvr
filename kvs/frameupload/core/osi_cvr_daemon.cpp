@@ -54,8 +54,8 @@ using namespace std;
 
 void CVR::onUploadSuccess(char* cvrRecName)
 {
-    RDK_LOG(RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): kvs Upload Successful - %s\n", __FUNCTION__, __LINE__, cvrRecName);
-    RDK_LOG(RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): Notifying the upload status for the file %s\n",__FUNCTION__, __LINE__, cvrRecName);
+    RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): kvs Upload Successful - %s\n", __FUNCTION__, __LINE__, cvrRecName);
+    RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): Notifying the upload status for the file %s\n",__FUNCTION__, __LINE__, cvrRecName);
     notify_smt_TN_uploadStatus(CVR_UPLOAD_OK, cvrRecName);
 }
 
@@ -736,7 +736,7 @@ int CVR::pushFrames(frameInfoH264* frameInfo,
         RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Pushing the Frames to KVS \n");
         if(isEOF)
         {
-            RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR","EOF Frame pushed. Marking the End of a clip %s\n", fileName);
+            RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","EOF Frame pushed. Marking the End of a clip %s\n", fileName);
         }
         if (-1 == ret_kvs)
         {
@@ -850,7 +850,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             continue; //whine first continue
         }
         
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): init_flag : %d\n", __FILE__, __LINE__,init_flag);
+        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): init_flag : %d\n", __FILE__, __LINE__,init_flag);
 
         // Init conn for clip building
         if (0 == init_flag)
