@@ -1646,10 +1646,20 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     while(1)
     {
         int pushframestatus = 0;
+	static bool got_firstIframe = 0, startstream = 0;
 
         int retVal = pws_ReadFrame(&pwsdata , &frame_info );
 
-	if( RDKC_SUCCESS == retVal )
+        if( !got_firstIframe )
+        {
+            if( ( PWS_PIC_TYPE_IDR_FRAME == frame_info.pic_type ) || ( PWS_PIC_TYPE_I_FRAME == frame_info.pic_type ) )
+            {
+                got_firstIframe = true;
+                startstream = true;
+            }
+        }
+
+	if( ( RDKC_SUCCESS == retVal ) && ( true == startstream ) )
 	{
             // Generate the file name base on the time
 
