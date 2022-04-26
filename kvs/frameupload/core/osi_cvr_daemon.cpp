@@ -355,6 +355,7 @@ int CVR::cvr_check_rfcparams()
 
         if( prev_cvr_audio_status != cvr_audio_status ) {
                 if( CVR_AUDIO_ENABLED == cvr_audio_status ) {
+                          RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): CVR audio is enabled.\n", __FILE__, __LINE__);
 			  kvsclip_audio=1;
 			  if(init_flag == 1){
 			  	cvr_init_audio_stream();
