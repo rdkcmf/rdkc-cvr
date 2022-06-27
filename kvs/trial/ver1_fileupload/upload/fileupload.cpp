@@ -373,6 +373,10 @@ static GstFlowReturn on_new_sample(GstElement *sink, CustomData *data) {
   LOG_DEBUG("on_new_sample Exit");
   return GST_FLOW_OK;
 }
+/**
+#Copyright (C) GStreamer developers
+#Here licensed under the MIT license
+**/
 
 /* This function is called when an error message is posted on the bus */
 static void error_cb(GstBus *bus, GstMessage *msg, CustomData *data) {
