@@ -85,7 +85,7 @@ extern "C"
 #endif
 #define CVR_FAILURE			-1
 #define CVR_SUCCESS			0
-#define CVR_CLIP_PATH                   "/tmp/cvr"
+#define CVR_CLIP_PATH                   "/tmp"
 #define CVR_CLIP_DURATION              	15   //seconds
 #define CVR_CLIP_NUMBER                	2
 #define CVR_FILE_PATH_LEN               256
@@ -154,6 +154,7 @@ class CVR : public kvsUploadCallback
       unsigned long true_len;
       char fpath[CVR_FILE_PATH_LEN];
       char file_name[CVR_FILE_PATH_LEN];
+      FILE* dumpfp;
       char cmd[200];
       int isIPAcquired;
       unsigned long start_msec;
@@ -171,7 +172,6 @@ class CVR : public kvsUploadCallback
 #endif //DEBUG_DUMP_H264
       int m_streamid;
       unsigned short kvsclip_audio;/* audio enable flag */
-      unsigned short kvsclip_highmem;/* highmem flag */
       static int top;
       static float low_bound_motion_score;
       /* rtmessage */
@@ -194,6 +194,7 @@ class CVR : public kvsUploadCallback
       bool iskvsStreamInitDone;
       cvr_clip_status_t clipStatus;
       uint64_t m_storageMem;
+      int m_streamdump;
       bool check_enabled_rfc_feature(char* rfc_feature_fname,char* rfc_feature);
       bool createkvsstream(int stream_id, unsigned short recreateflag);
       int pushFrames(frameInfoH264* frameInfo,
@@ -204,7 +205,7 @@ class CVR : public kvsUploadCallback
     public:
       CVR();
       ~CVR();
-      int cvr_init(unsigned short kvsclip_audio,cvr_provision_info_t *pCloudRecorderInfo,uint64_t storageMemory = 0);
+      int cvr_init(unsigned short kvsclip_audio,cvr_provision_info_t *pCloudRecorderInfo,const int& streamdump, uint64_t storageMemory = 0);
       void do_cvr(void * pCloudRecorderInfo);
       int cvr_close();
       static volatile sig_atomic_t term_flag;

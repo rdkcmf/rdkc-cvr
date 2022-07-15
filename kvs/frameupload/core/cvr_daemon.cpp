@@ -30,15 +30,6 @@ struct pws_data pwsdata = { 0 };
 pws_frameInfo frame_info = { 0 };
 #endif
 
-#ifdef XCAM2
-extern "C"{
- #include "streamUtils.h"
-}
-
-#include <inttypes.h>
-#define CVR_RESOLUTION_CONF     "/opt/usr_config/cvr.conf"
-#define CVR_RESOLUTION          "resolution"
-#endif
 #define KVSINITMAXRETRY         5
 #define EVENT_THRESHHOLD_COUNT  4
 #define KVS_SMARTRC "RFC_ENABLE_XCAM2_SMARTRC"
@@ -53,19 +44,8 @@ char fileName[256] = {0};
 	volatile bool CVR::smartTnEnabled = true;
 #endif
 
-#ifdef _HAS_XSTREAM_
-    #define VIDEO_MASK 0x0F
-    #if DEBUG_DUMP_H264
-        int CVR::write_bytes = 0;
-        FILE* CVR::fp = NULL;
-        int CVR::frame_num = 0;
-        FILE* CVR::fpAudioAAC = NULL;
-        int CVR::frame_num_audio = 0;
-    #endif //DEBUG_DUMP_H264
-#else
-    RdkCPluginFactory* CVR::temp_factory = CreatePluginFactoryInstance(); //creating plugin factory instance
-    RdkCVideoCapturer* CVR::recorder = ( RdkCVideoCapturer* )temp_factory->CreateVideoCapturer();
-#endif //_HAS_XSTREAM_
+RdkCPluginFactory* CVR::temp_factory = CreatePluginFactoryInstance(); //creating plugin factory instance
+RdkCVideoCapturer* CVR::recorder = ( RdkCVideoCapturer* )temp_factory->CreateVideoCapturer();
 
 int CVR::local_stream_err = 0;
 using namespace std;
@@ -89,9 +69,6 @@ void CVR::onUploadError(char* cvrRecName, const char* streamStatus)
  */
 CVR::CVR(): init_flag(0),
 	check_polling_config_timeout( XFINITY_POLLING_CONFIG_TIMEOUT ),
-#ifdef _HAS_XSTREAM_
-	_streamFd(-1),
-#endif //_HAS_XSTREAM_
 #ifdef RTMSG
 	event_quiet_time(DEFAULT_EV_QUIET_TIME),
 #endif
@@ -105,23 +82,14 @@ CVR::CVR(): init_flag(0),
 	iskvsInitDone(false),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
-	kvsclip_highmem(0),
 	m_storageMem(0),
         useEpochTimeStamp(0)
 {
 #ifdef RTMSG
 	rtmessageCVRThreadExit = false;
 #endif
-#ifdef _HAS_XSTREAM_
-	cvr_key_frame = (frameInfoH264 *)malloc(sizeof(frameInfoH264));
-	memset(cvr_key_frame, 0, sizeof(frameInfoH264));
-
-	// Memory allocation to be done at the consumer library
-	cvr_frame = NULL;
-#else
 	memset(&cvr_frame, 0, sizeof(cvr_frame));
 	memset(&cvr_key_frame, 0, sizeof(cvr_frame));
-#endif
 }
 
 CVR::~CVR()
@@ -418,7 +386,6 @@ int CVR::cvr_enable_audio(bool val)
 			}
                         return -1;
                 }
-#ifndef XCAM2 
                 if(set_audio_mic_enable_2(value_enable, 1, cvrAudioMsg, (void*) g_pconf, (LIST *)NULL) != 0)
                 {
                         RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to set audio enable!\n", __FUNCTION__, __LINE__);
@@ -427,19 +394,6 @@ int CVR::cvr_enable_audio(bool val)
 			}
                         return -1;
                 }
-#else
-		if (set_audio_mic_enable(value_enable, 1, cvrAudioMsg, (void*) g_pconf, NULL) != 0)
-		{
-			RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to set audio mic enable!\n", __FUNCTION__, __LINE__);
-                        return -1;
-		}
-		//set in_audio_type is AAC
-		if (set_audio_mic_encoded_type_cvr(1,(void*) g_pconf,NULL)!=0)
-		{
-                        RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to set audio encode type to AAC!\n", __FUNCTION__, __LINE__);
-                        return -1;
-		}
-#endif
         }
         else if( false == val )
         {
@@ -453,7 +407,6 @@ int CVR::cvr_enable_audio(bool val)
 			}
                         return -1;
                 }
-#ifndef XCAM2
                 if(set_audio_mic_enable_2(value_disable, 1, cvrAudioMsg, (void*) g_pconf, (LIST *)NULL) != 0)
                 {
                         RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to set audio disable!\n", __FUNCTION__, __LINE__);
@@ -462,21 +415,6 @@ int CVR::cvr_enable_audio(bool val)
 			}
                         return -1;
                 }
-#else
-		RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): disabling audio\n", __FUNCTION__, __LINE__);
-		if (set_audio_mic_enable(value_disable, 1, cvrAudioMsg, (void*) g_pconf, NULL) != 0)
-                {
-                        RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to set audio mic enable!\n", __FUNCTION__, __LINE__);
-                        return -1;
-                }
-                //set in_audio_type is AAC
-                if (set_audio_mic_encoded_type_cvr(0,(void*) g_pconf,NULL)!=0)
-                {
-                        RDK_LOG(RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to set audio encode type to AAC!\n", __FUNCTION__, __LINE__);
-                        return -1;
-                }
-
-#endif
         }
 
         if (SaveAllConf(g_pconf, cvrAudioMsg, 1, &cfg_chg_flag) != 0)
@@ -507,7 +445,6 @@ int CVR::cvr_enable_audio(bool val)
  *  @param[in] void
  *  @return: void
  */
-#ifndef _HAS_XSTREAM_
 void CVR::cvr_init_audio_stream()
 {
     m_streamid = DEF_CVR_CHANNEL;
@@ -552,21 +489,6 @@ void CVR::cvr_init_audio_stream()
         }
     }
 }
-#else
-void CVR::cvr_init_audio_stream()
-{
-    cvr_flag |= XSTREAM_AUDIO_FLAG;
-
-    _streamFd = objConsumer.StreamInit( m_streamid, FORMAT_H264, XSTREAM_AUDIO_FLAG ); //Audio
-    if ( _streamFd < 0 ) {
-        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Invalid socket fd 0x%x, stream initialization failed \n", __FILE__, __LINE__, _streamFd);
-        cvr_flag &= ~XSTREAM_AUDIO_FLAG;
-    }
-    else {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR", "%s(%d): Stream(%d) initialization success \n", __FILE__, __LINE__, _streamFd);
-    }
-}
-#endif //_HAS_XSTREAM_
 
 /** @description: check cvr audio
  *  @param[in] void
@@ -587,13 +509,8 @@ void CVR::cvr_check_audio()
         }
 
         if(strcmp(configParam, RDKC_TRUE) == 0) {
-#if !defined( XHB1) && !defined( XHC3 )
                 cvr_audio_status = CVR_AUDIO_ENABLED;
                 RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to enable.\n", __FILE__, __LINE__);
-#else
-                cvr_audio_status = CVR_AUDIO_DISABLED;
-                RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): Forcing CVR audio status to disable for xhb1.\n", __FILE__, __LINE__);
-#endif
         } else {
                 cvr_audio_status = CVR_AUDIO_DISABLED;
                 RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
@@ -611,21 +528,6 @@ void CVR::cvr_check_audio()
                         RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR", "%s(%d): CVR audio is disabled.\n", __FILE__, __LINE__);
                         kvsclip_audio=0;
                         if(init_flag == 1){
-#ifdef _HAS_XSTREAM_
-                            if(cvr_flag & XSTREAM_AUDIO_FLAG)
-                            {
-                                if (_streamFd > 0) {
-                                    if( 0 != objConsumer.StreamClose(_streamFd, XSTREAM_AUDIO_FLAG)) {
-                                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Stream Close failed\n", __FILE__, __LINE__);
-                                    }
-                                    else {
-                                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR", "%s(%d): Stream Close success\n", __FILE__, __LINE__);
-                                    }
-                                    //_streamFd = -1;
-                                }
-                                cvr_flag &= ~XSTREAM_AUDIO_FLAG;
-                            }
-#else
                             if(cvr_flag & RDKC_STREAM_FLAG_AUDIO)
                             {
                                 if( NULL != recorder ){
@@ -633,17 +535,6 @@ void CVR::cvr_check_audio()
                                 }
                                 cvr_flag &= ~RDKC_STREAM_FLAG_AUDIO;
                             }
-#endif //_HAS_XSTREAM_
-                        }
-                }
-        }
-
-        /* RFC check for kvs smartrc */
-        if( RDKC_SUCCESS == IsRFCFileAvailable(RFCFILE) ) {
-                memset(value,0,MAX_SIZE);
-                if(RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, KVS_SMARTRC, value)) {
-                        if( strcmp(value, RDKC_TRUE) == 0 ) {
-                                kvsclip_highmem = 1;
                         }
                 }
         }
@@ -698,11 +589,12 @@ void CVR::setCVRStreamId(int streamid)
 }
 
 /** @description: initialize cvr
- *  @param[in] argv - char pointer
- *  @param[in] pCloudRecorderInfo - cvr_provision_info_t pointer
+ *  @param[in] isAudio - audio status
+ *  @param[in] pCloudRecorderInfo - CloudRecorderConf pointer
+ *  @param[in] storageMemory - kvs storage in bytes
  *  @return: CVR_Failure is failed , CVR_SUCCESS if success
  */
-int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo)
+int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInfo,uint64_t storageMemory=0)
 {
 	int rdkc_ret = 1;
         int iscvrenabled = 0;
@@ -723,62 +615,25 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
                 return CVR_FAILURE;
         }
 
-        kvsclip_audio = atoi(argv[1]);      /* audio enable flag */
-        kvsclip_highmem = atoi(argv[2]);    /* highmem flag */
+        kvsclip_audio = isAudio;      /* audio enable flag */
+        m_storageMem = storageMemory;
 #endif
 
-#ifdef XCAM2 
-        if (argc == 4)
-        {
-                m_storageMem = atoi(argv[3]); /*storage space*/
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): storageMem Allocated to : %llu\n", __FILE__, __LINE__, m_storageMem);
-        }
-#endif
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : kvsclip_highmem : %d\n", __FILE__, __LINE__, kvsclip_audio, kvsclip_highmem);
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : m_storageMem : %llu\n", __FILE__, __LINE__, kvsclip_audio, m_storageMem);
 
         // Init cvr flag
-#ifdef _HAS_XSTREAM_
-        cvr_flag = XSTREAM_VIDEO_FLAG ;       // Video is must
-#ifdef _SUPPORT_AAC_
-        cvr_flag |= XSTREAM_AUDIO_FLAG;      // Audio is necessary if AAC enabled
-        m_streamid |= 0x10;                      //Default audio channel is 1.
-#endif
-#else
         cvr_flag = RDKC_STREAM_FLAG_VIDEO ;       // Video is must
 #ifdef _SUPPORT_AAC_
         cvr_flag |= RDKC_STREAM_FLAG_AUDIO;      // Audio is necessary if AAC enabled
         m_streamid |= 0x10;                      //Default audio channel is 1.
 #endif
-#endif //_HAS_XSTREAM_
-
         cvr_flag |= RDKC_STREAM_FLAG_PADDING;    // Padding is must
         
         cvr_flag |= RDKC_STREAM_FLAG_ABSTIMESTAMP;    //disable abs timestamp - 1 means disable absolute timestamp - 0  means reset timestamp
 
-#ifdef _HAS_XSTREAM_
-#if DEBUG_DUMP_H264
-        unlink("/opt/cvr_frame.H264");
-        fp = fopen("/opt/cvr_frame.H264", "wo+" );
-
-        if ( NULL == fp ) {
-                RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d) :open video file open error\n", __FILE__, __LINE__ );
-        }
-
-        unlink("/opt/aac_test.aac");
-
-        fpAudioAAC = fopen("/opt/aac_test.aac", "wo+" );
-
-        if ( NULL == fpAudioAAC ) {
-                RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d) :open audio file open error\n", __FILE__, __LINE__ );
-        }
-
-#endif //DEBUG_DUMP_H264
-#else
 	conf = new camera_resource_config_t;
 	//conf->KeyValue = stream_id + MAX_ENCODE_STREAM_NUM;
 	v_stream_conf = new video_stream_config_t;
-#endif //_HAS_XSTREAM_
-
         if( RDKC_SUCCESS != config_init())
         {
                 RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Config Manager init fails\n",__FILE__,__LINE__);
@@ -839,7 +694,7 @@ int CVR::cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo
                 system(cmd);
         }
     /* Permanently enabling audio in the device */
-#if !defined ( _HAS_XSTREAM_ ) && !defined  ( CVR_PLATFORM_RPI )
+#if !defined  ( CVR_PLATFORM_RPI )
     cvr_enable_audio(true);
 #endif
     createkvsstream((m_streamid & 0x0F),0);
@@ -944,7 +799,7 @@ bool CVR::createkvsstream(int stream_id, unsigned short recreateflag)
     if ( false == iskvsStreamInitDone )
     {
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsStreamInit \n", __FILE__, __LINE__ );
-        ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, recreateflag);
+        ret_kvs = kvsStreamInit(kvsclip_audio, recreateflag);
         if ( true == ret_kvs )
         {
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsStreamInit success \n", __FILE__, __LINE__);
@@ -966,15 +821,9 @@ bool CVR::createkvsstream(int stream_id, unsigned short recreateflag)
  *  @param[in]: -NIL-
  *  @return: bool - SUCCESS or FAILURE
  */
-#ifdef _HAS_XSTREAM_
-int CVR::pushFrames(frameInfoH264* frameInfo,
-					char* fileName,
-					bool isEOF = false)
-#else
 int CVR::pushFrames(RDKC_FrameInfo& frameInfo, 
 					char* fileName,
 					bool isEOF = false)
-#endif //_HAS_XSTREAM_
 {
     int ret_kvs = RDKC_SUCCESS;
 
@@ -987,81 +836,7 @@ int CVR::pushFrames(RDKC_FrameInfo& frameInfo,
     //do {
     RDK_LOG(RDK_LOG_TRACE1, "LOG.RDK.CVR","%s(%d): check values : %u\n", __FILE__, __LINE__, kvsclip_audio);
 
-#ifdef _HAS_XSTREAM_
-		frameInfoH264 frameInfoTmp;
-		memset(&frameInfoTmp, 0, sizeof(frameInfoH264));
-
-		frameInfoTmp.stream_id = frameInfo->stream_id;
-		frameInfoTmp.stream_type = frameInfo->stream_type;
-		frameInfoTmp.pic_type = frameInfo->pic_type;
-		frameInfoTmp.frame_ptr = frameInfo->frame_ptr;
-		frameInfoTmp.frame_num = frameInfo->frame_num;
-		frameInfoTmp.frame_size = frameInfo->frame_size;
-		frameInfoTmp.jpeg_quality = frameInfo->jpeg_quality;
-		frameInfoTmp.width = frameInfo->width;
-		frameInfoTmp.height = frameInfo->height;
-		frameInfoTmp.frame_timestamp = frameInfo->frame_timestamp;
-		frameInfoTmp.arm_pts = frameInfo->arm_pts;
-		frameInfoTmp.dsp_pts = frameInfo->dsp_pts;
-
-#if DEBUG_DUMP_H264
-		// 3 is PCM, 10 is AAC data
-		if( XSTREAM_STREAM_TYPE_AAC == frameInfoTmp.stream_type ){
-
-			if ( 512 >= frame_num_audio ) {
-
-				if ( XSTREAM_STREAM_TYPE_AAC == frameInfoTmp.stream_type ) {
-					write_bytes = fwrite( ( char * ) frameInfoTmp.frame_ptr, frameInfoTmp.frame_size, 1, fpAudioAAC );
-
-					if ( 512 == frame_num_audio ) {
-						printf("RDKC-XS %s(%d): ------ frame_num_audio = %d ------ \n", __FUNCTION__, __LINE__, frame_num_audio);
-					}
-					if ( write_bytes <= 0 ) {
-						RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR","%s(%d) :CVR:: errmsg(%d)=%s!\n", __FILE__, __LINE__, errno, strerror( errno ) );
-						return false;
-					}
-					RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) :xStream CVR:: streamid %d stream_type %d pic_type %ld frame_num %ld frame_size %ld width %ld height %ld arm_pts %lld dsp_pts %lld \n", __FILE__, __LINE__, frameInfoTmp.stream_id, frameInfoTmp.stream_type, frameInfoTmp.pic_type, frameInfoTmp.frame_num, frameInfoTmp.frame_size, frameInfoTmp.width, frameInfoTmp.height, frameInfoTmp.arm_pts, frameInfoTmp.dsp_pts );
-					RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : AUDIO timestamp:%lu kvsclip_audio = %d\n",__FILE__, __LINE__,frameInfoTmp.frame_timestamp, kvsclip_audio);
-				}
-				frame_num_audio++;
-			}
-			else {
-				if ( NULL != fpAudioAAC ) {
-					fclose( fpAudioAAC );
-					fpAudioAAC = NULL;
-				}
-			}
-		}
-		else { //Dump Video frames
-			if ( 512 >= frame_num ) {
-				if ( 512 == frame_num ) {
-					printf("RDKC-XS %s(%d): ------ frame_num = %d ------ \n", __FUNCTION__, __LINE__, frame_num);
-				}
-				write_bytes = fwrite( ( char * ) frameInfoTmp.frame_ptr, frameInfoTmp.frame_size, 1, fp );
-				if ( write_bytes <= 0 ) {
-					RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR","%s(%d) :CVR:: errmsg(%d)=%s!\n", __FILE__, __LINE__, errno, strerror( errno ) );
-					return false;
-				}
-				RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) :xStream CVR:: streamid %d stream_type %d pic_type %ld frame_num %ld frame_size %ld width %ld height %ld arm_pts %lld dsp_pts %lld \n", __FILE__, __LINE__, frameInfoTmp.stream_id, frameInfoTmp.stream_type, frameInfoTmp.pic_type, frameInfoTmp.frame_num, frameInfoTmp.frame_size, frameInfoTmp.width, frameInfoTmp.height, frameInfoTmp.arm_pts, frameInfoTmp.dsp_pts );
-				RDK_LOG(RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : VIDEO timestamp:%lu, kvsclip_audio = %d\n",__FILE__, __LINE__,frameInfoTmp.frame_timestamp, kvsclip_audio);
-				frame_num++;
-			}
-			else {
-				if ( NULL != fp ) {
-					fclose( fp );
-					fp = NULL;
-				}
-			}
-		}
-#endif //DEBUG_DUMP_H264
-
-#endif //_HAS_XSTREAM_
-
-#ifdef _HAS_XSTREAM_
-        ret_kvs = kvsUploadFrames(kvsclip_highmem, frameInfoTmp, fileName, isEOF);
-#else
-        ret_kvs = kvsUploadFrames(kvsclip_highmem, frameInfo, fileName, isEOF);
-#endif //_HAS_XSTREAM_
+        ret_kvs = kvsUploadFrames(frameInfo, fileName, isEOF);
 
         RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Pushing the Frames to KVS \n");
         if(isEOF)
@@ -1094,7 +869,6 @@ int CVR::pushFrames(RDKC_FrameInfo& frameInfo,
  *  @param[in]: pCloudRecorderInfo - void pointer
  *  @return: void
  */
-#ifndef _HAS_XSTREAM_
 void CVR::do_cvr(void * pCloudRecorderInfo)
 {
 #if !defined ( CVR_PLATFORM_RPI )
@@ -1609,13 +1383,8 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         {
             if(v_stream_conf) {
                 video_stream_config_t *vs_conf = (video_stream_config_t*) v_stream_conf;
-#ifdef XCAM2 
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR configuration: StreamID Resolution(W*H) FrameRate BitRate %d %d*%d %d %d \n", __FILE__, __LINE__,
-                        (m_streamid & 0x0F), vs_conf->width, vs_conf->height, vs_conf->frame_rate, vs_conf->bit_rate);
-#else
                 RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): CVR configuration: StreamID Resolution(W*H) FrameRate BitRate %d %d*%d %d %d \n", __FILE__, __LINE__,
                         (m_streamid & 0x0F), vs_conf->width, vs_conf->height, vs_conf->frame_rate, vs_conf->bit_rate);
-#endif
             } else {
                 RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Memory is not allocated for retreving stream confg!!. \n", __FILE__, __LINE__);
             }
@@ -1692,456 +1461,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
     }
 #endif /* ENABLE_PIPEWIRE */
 }
-#else
-void CVR::do_cvr(void * pCloudRecorderInfo)
-{
-    int ret = RDKC_FAILURE;
-    int rdkc_ret = 1;
-    unsigned short lessMemoryCount = 0; // to restrict the logging of low memory
-    unsigned short streamInitErrorCount = 0; // to restrict the logging of Stream Init Error Count
-    unsigned short streamNotreadyErrorCount = 0; // to restrict the logging of Stream Init Error Count
-    unsigned short idrFrameCount = 0;
-    unsigned short pFrameCount = 0;
-    unsigned short bFrameCount = 0;
-    unsigned short audioFrameCount = 0;
-    unsigned short totalFramesinClip = 0;
-    int ret_videoStreamConfig = -1;
-    unsigned short lenableaudio = kvsclip_audio;
-    int pushframestatus = 0;
-
-    cvr_provision_info_t *CloudRecorderInfo  = (cvr_provision_info_t*)pCloudRecorderInfo ;
-    int iscvrenabled = atoi(CloudRecorderInfo->enable);
-    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
-
-    while (!term_flag)
-    {
-        if (reload_cvr_flag)
-        {
-            rdkc_ret = cvr_read_config(CloudRecorderInfo);
-            if (0 == rdkc_ret)
-            {
-                iscvrenabled = atoi(CloudRecorderInfo->enable);
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
-            }
-            else
-            {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
-            }
-            reload_cvr_flag = 0;
-        }
-
-        // Need close session if disconnect flag was set
-        if (init_flag && local_stream_err)
-        {
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Local Stream Error- Close Video/Audio Streaming Session, cvr_flag: %d!\n", __LINE__, cvr_flag);
-
-            if (_streamFd > 0) {
-                if( 0 != objConsumer.StreamClose(_streamFd, (cvr_flag & XSTREAM_AV_FLAG_MASK)) ){
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Stream Close failed\n", __FILE__, __LINE__);
-                }
-                else {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR", "%s(%d): Stream Close success\n", __FILE__, __LINE__);
-                }
-                _streamFd = -1;
-
-                cvr_flag &= ~XSTREAM_AUDIO_FLAG;
-                cvr_flag &= ~XSTREAM_VIDEO_FLAG ;
-            }
-            init_flag = 0;
-            local_stream_err = 0;
-        }
-
-        //check cvr audio
-        cvr_check_audio();
-
-        // CVR not enabled
-        if (CloudRecorderInfo->enable == 0)
-        {
-            if (init_flag)
-            {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): CVR disabled, Close Video/Audio Streaming Session, cvr_flag: %d!\n", __LINE__, cvr_flag);
-                if (_streamFd > 0) {
-                    if( 0 != objConsumer.StreamClose(_streamFd, (cvr_flag & XSTREAM_AV_FLAG_MASK))) {
-                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Stream Close failed\n", __FILE__, __LINE__);
-                    }
-                    else {
-                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR", "%s(%d): Stream Close success\n", __FILE__, __LINE__);
-                    }
-                    _streamFd = -1;
-
-                    cvr_flag &= ~XSTREAM_AUDIO_FLAG;
-                    cvr_flag &= ~XSTREAM_VIDEO_FLAG ;
-                }
-            }
-            init_flag = 0;
-            sleep(1);
-            continue; //whine first continue
-        }
-
-        // Init conn for clip building
-        if (0 == init_flag)
-        {
-
-            cvr_flag = XSTREAM_VIDEO_FLAG ;       // Video is must
-#ifdef _SUPPORT_AAC_
-            cvr_flag |= XSTREAM_AUDIO_FLAG;      // Audio is necessary if AAC enabled
-#endif
-            cvr_flag |= RDKC_STREAM_FLAG_PADDING;    // Padding is must
-
-            cvr_flag |= RDKC_STREAM_FLAG_ABSTIMESTAMP;
-
-            int avflag = XSTREAM_VIDEO_FLAG;
-            if (CVR_AUDIO_ENABLED == cvr_audio_status) {
-                avflag = (XSTREAM_VIDEO_FLAG | XSTREAM_AUDIO_FLAG);
-            }
-            else {
-                cvr_flag &= ~XSTREAM_AUDIO_FLAG;
-            }
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d : cvr_flag : %d\n", __FILE__, __LINE__, kvsclip_audio, cvr_flag );
-
-            _streamFd = objConsumer.StreamInit( m_streamid, FORMAT_H264, avflag );
-            if ( _streamFd < 0 ) {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Invalid socket fd 0x%x, stream initialization failed \n", __FILE__, __LINE__, _streamFd);
-                ret = RDKC_FAILURE;
-            }
-            else {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR", "%s(%d): Stream(%d) initialization success avflag = %d \n", __FILE__, __LINE__, _streamFd, avflag);
-                ret = RDKC_SUCCESS;
-            }
-
-            cvr_frame = NULL;
-            cvr_frame = objConsumer.GetH264FrameContainer();
-            if(NULL == cvr_frame) {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Error in retrieving the H264 frame container \n", __FILE__, __LINE__);
-                return false;
-            }
-
-            if( RDKC_FAILURE == ret)
-            {
-                streamInitErrorCount++;
-                if( 0 == (streamInitErrorCount % 5) ) {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): init local stream for read video frame error. Retry Count %d\n", __FILE__, __LINE__, streamInitErrorCount);
-                }
-                sleep(1);
-                continue;
-            }
-
-            memset(&_videoConfig, 0, sizeof (stream_hal_stream_config));
-            ret_videoStreamConfig = objConsumer.GetStreamConfig((m_streamid & VIDEO_MASK), &_videoConfig);
-            if( ret_videoStreamConfig < 0 ) {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Error in retreving video stream configuration for stream %d \n", __FILE__, __LINE__, (m_streamid & 0x0F) );
-            }
-
-            streamInitErrorCount = 0; //Resetting the streamInitErrorCount as StreamInit is success
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Init local stream for read video frame success, cvr_flag: %d!\n", __LINE__, cvr_flag);
-
-            init_flag = 1;
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): CVR init succesfull!\n", __LINE__);
-
-            // wait for I frame
-            while (!term_flag)
-            {
-                ccode = objConsumer.ReadFrame( m_streamid, FORMAT_H264, cvr_frame );
-
-                if (ccode < 0)
-                {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
-                    local_stream_err = 1;
-                    break;
-                }
-                else if (ccode)
-                {
-                    usleep(10000);
-                    streamNotreadyErrorCount++;
-                    // if we dont get the Iframe within 3 seconds, then exit the loop
-                    if ( streamNotreadyErrorCount > (3*1000) ) {
-                        RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read first I frame error!\n", __FILE__, __LINE__);
-                        local_stream_err = 1;
-                        break;
-                    }
-                    continue;
-                }
-                else
-                {
-                    if(IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
-                    {
-
-                        //RDK_LOG( RDK_LOG_INFO, "LOG.RDK.CVR","%s(%d): Got the first I Frame, _streamFd %d \n", __FILE__, __LINE__, _streamFd);
-                        has_an_iframe = 1;
-                    }
-                    else {
-                        RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Frame obtained is not an I Frame \n");
-                        usleep(10000);
-                        continue;
-                    }
-
-                    //gettimeofday(&start_t,NULL);
-                    clock_gettime(CLOCK_REALTIME, &start_t);
-                    start_msec = cvr_frame->frame_timestamp;
-                    memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec=%lu\n", __FILE__, __LINE__, start_msec);
-                    break;
-                }
-            }
-            streamNotreadyErrorCount = 0; // Resetting the error count as we got the Iframe
-        }
-
-        // If local stream error, continue
-        if(1 == local_stream_err) {
-            sleep(1);
-            continue;
-        }
-
-        if ( lenableaudio != kvsclip_audio) {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : prior audio enable flag : %d , current audio enable flag : %d\n", __FILE__, __LINE__, lenableaudio, kvsclip_audio);
-            lenableaudio = kvsclip_audio;
-            iskvsStreamInitDone = false;
-            createkvsstream(( m_streamid & 0x0F ),1);
-        }
-
-        if ( 1 == pushframestatus ) {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, pushframestatus);
-            iskvsStreamInitDone = false;
-            pushframestatus = 0;
-            createkvsstream(( m_streamid & 0x0F ),1);
-        }
-        clipStatus = CVR_CLIP_GEN_START;
-
-        // Generate the file name base on the time
-        memset(file_name, '\0', sizeof(file_name));
-        tv = gmtime(&start_t.tv_sec);
-        snprintf(file_name, sizeof(file_name), "%04d%02d%02d%02d%02d%02d", (tv->tm_year+1900), tv->tm_mon+1, tv->tm_mday, tv->tm_hour, tv->tm_min, tv->tm_sec);
-        // Generate the file name which used to save CVR clip
-        cvr_starttime = start_t.tv_sec;
-
-        //notify smart thumbnail clip creation started
-        if(smartTnEnabled)
-        {
-            if(useEpochTimeStamp) {
-                std::thread clipstatusstartthread (notify_smt_TN_clipStatus,CVR_CLIP_GEN_START, file_name);
-                pthread_setname_np(clipstatusstartthread.native_handle(),"clipstatusstartthread");
-                clipstatusstartthread.detach();
-            } else {
-                notify_smt_TN_clipStatus(CVR_CLIP_GEN_START, file_name);
-            }
-        }
-
-        if (has_an_iframe)
-        {
-            //write 367 bytes PAT-PMT pair and the first I frame to clip file.
-            cvr_flag |= RDKC_STREAM_FLAG_ABSTIMESTAMP;
-
-            RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): Initialize clip creation, ts_fd=%d, cvr_flag=%d!\n", __LINE__, ts_fd, cvr_flag);
-            pushframestatus = pushFrames(cvr_key_frame, file_name);
-            if ( 1 == pushframestatus ) {
-                RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                break;
-            }
-
-            idrFrameCount++;
-
-            has_an_iframe = 0;
-        }
-        while ((long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec)) > 20)
-        {
-            if (term_flag || local_stream_err)
-            {
-                break;
-            }
-            // reload cvr config
-            if (reload_cvr_flag)
-            {
-                rdkc_ret = cvr_read_config(CloudRecorderInfo);
-                if (0 == rdkc_ret)
-                {
-                    iscvrenabled = atoi(CloudRecorderInfo->enable);
-                    file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d, file_len=%d!\n", __LINE__, iscvrenabled,file_len);
-                }
-                else
-                {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is unsuccessful, enable=%d!\n", __LINE__, iscvrenabled);
-                }
-                reload_cvr_flag = 0;
-            }
-            // CVR disabled
-            if (iscvrenabled == 0)
-            {
-                RDK_LOG( RDK_LOG_WARN,"LOG.RDK.CVR","%s(%d): CVR is disabled.\n", __FILE__, __LINE__);
-                term_flag = 1;
-                break;
-            }
-
-            ccode = objConsumer.ReadFrame( m_streamid, FORMAT_H264, cvr_frame );
-
-            if (ccode < 0)
-            {
-                RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
-                local_stream_err = 1;
-                break;
-            }
-            else if (0 == ccode)
-            {
-                if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
-                        && (long)(file_len*1000 - compare_timestamp(amba_hwtimer_msec(hwtimer_fd), start_msec) < 150))
-                {
-                    //This I frame is almost at the end of clip file, we'll keep it, to write into next clip file.
-                    has_an_iframe = 1;
-                    clock_gettime(CLOCK_REALTIME, &start_t);
-                    start_msec = cvr_frame->frame_timestamp;
-                    memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe_clipend=%lu\n", __FILE__, __LINE__, start_msec);
-                    break;
-                }
-                if (!has_an_iframe)
-                {
-                    pushframestatus = pushFrames(cvr_frame, file_name);
-                    if ( 1 == pushframestatus ) {
-                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                        break;
-                    }
-
-                    if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type) ) {
-                        idrFrameCount++;
-                    } else if (IAV_PIC_TYPE_P_FRAME == cvr_frame->pic_type) {
-                        pFrameCount++;
-                    } else if(IAV_PIC_TYPE_B_FRAME == cvr_frame->pic_type) {
-                        bFrameCount++;
-                    }
-                    else if (XSTREAM_STREAM_TYPE_AAC == cvr_frame->stream_type) {
-                        audioFrameCount++;
-                    }
-                }
-            }
-            else if (ccode)      // 1 means no data to read
-            {
-                usleep(10000);
-                continue;
-            }
-
-            //rest memory is quite low. shouldn't write more frames.sleep and check.
-            while(sc_get_sys_free_mem() < 5000000)
-            {
-                if(lessMemoryCount < 10) {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Available system memory is %ld which is less than 5MB and hence suspending CVR \n", __FILE__, __LINE__, sc_get_sys_free_mem());
-                    lessMemoryCount++;
-                }
-                sleep(2);
-            }
-            lessMemoryCount = 0;
-        }
-
-        if (!has_an_iframe)     //file length reached but we haven't got an I frame. This is to look for a coming I frame.
-        {
-            while (!term_flag)
-            {
-                ccode = objConsumer.ReadFrame(m_streamid, FORMAT_H264, cvr_frame);
-                if (ccode < 0)
-                {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
-                    local_stream_err = 1;
-                    break;
-                }
-                else if (ccode)
-                {
-                    usleep(10000);
-                    continue;
-                }
-                else
-                {
-                    if (IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type)
-                    {
-                        has_an_iframe = 1;
-                        clock_gettime(CLOCK_REALTIME, &start_t);
-                        start_msec = cvr_frame->frame_timestamp;
-                        memcpy(cvr_key_frame, cvr_frame, sizeof(frameInfoH264));
-                        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): start_msec_iframe=%lu\n", __FILE__, __LINE__, start_msec);
-                        break;
-                    }
-                    if (!has_an_iframe)
-                    {
-                        pushframestatus = pushFrames(cvr_frame, file_name);
-                        if ( 1 == pushframestatus ) {
-                            RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                            break;
-                        }
-
-                        //save audio frame with timestamp less than start_msec, else continue
-                        if ((XSTREAM_STREAM_TYPE_AAC == cvr_frame->stream_type) && (cvr_frame->frame_timestamp + AUDIO_DURATION > start_msec)) {
-                            continue;
-                        }
-
-                        if ((IAV_PIC_TYPE_IDR_FRAME == cvr_frame->pic_type || IAV_PIC_TYPE_I_FRAME == cvr_frame->pic_type) ) {
-                            idrFrameCount++;
-                        } else if (IAV_PIC_TYPE_P_FRAME == cvr_frame->pic_type) {
-                            pFrameCount++;
-                        } else if(IAV_PIC_TYPE_B_FRAME == cvr_frame->pic_type) {
-                            bFrameCount++;
-                        } else if (XSTREAM_STREAM_TYPE_AAC == cvr_frame->stream_type) {
-                            audioFrameCount++;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!term_flag)
-        {
-            if(RDKC_FAILURE != ret_videoStreamConfig) {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR configuration: StreamID Resolution(W*H) FrameRate BitRate %d %d*%d %d %d \n", __FILE__, __LINE__, (m_streamid & VIDEO_MASK), _videoConfig.width, _videoConfig.height, _videoConfig.frame_rate, _videoConfig.bit_rate);
-            }
-
-            totalFramesinClip = idrFrameCount + pFrameCount + bFrameCount + audioFrameCount;
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s clip frame stats :  idrFrameCount : %d, pFrameCount : %d, bFrameCount : %d, audioFrameCount : %d, totalFramesinClip : %d\n"
-                                , __FILE__, __LINE__,file_name, idrFrameCount,pFrameCount,bFrameCount,audioFrameCount, totalFramesinClip);
-            idrFrameCount = 0;
-            pFrameCount = 0;
-            bFrameCount = 0;
-            audioFrameCount = 0;
-            totalFramesinClip = 0;
-            strcpy(fileName, file_name);
-
-            //if local stream error is met while creating clip discard the clip sine it's an incomplete ts clip
-            if( 0 == local_stream_err ) {
-                if(smartTnEnabled)
-                {
-                    if(useEpochTimeStamp) {
-                        std::thread clipstatusendthread (notify_smt_TN_clipStatus,CVR_CLIP_GEN_END, file_name);
-                        pthread_setname_np(clipstatusendthread.native_handle(),"clipstatusendthread");
-                        clipstatusendthread.detach();
-                    } else {
-                        notify_smt_TN_clipStatus(CVR_CLIP_GEN_END, file_name);
-                    }
-
-                    pushframestatus = pushFrames(cvr_frame, file_name, true);
-                    if ( 1 == pushframestatus ) {
-                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                    }
-                }
-                else
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Smart thumbnail disabled. Pushing frames\n", __FILE__, __LINE__);
-                    pushframestatus = pushFrames(cvr_frame, file_name, true);
-                    if ( 1 == pushframestatus ) {
-                        RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
-                    }
-                }
-
-                if(kvsclip_audio)
-                {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s kvs clip has audio\n", __FILE__, __LINE__, file_name);
-                }
-                clipStatus = CVR_CLIP_GEN_END;
-            }
-        }
-        else
-        {
-            RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Ending after term_flag enabled \n", __FILE__, __LINE__);
-        }
-    }
-}
-#endif //_HAS_XSTREAM_
 
 /** @description: close cvr
  *  @param[in] argv - char pointer
@@ -2153,14 +1472,10 @@ int CVR::cvr_close()
         config_release();
         polling_config_exit();
 
-#ifdef _HAS_XSTREAM_
-	/* Do nothing */
-#else
 	if(v_stream_conf) {
 		delete v_stream_conf;
 		v_stream_conf = NULL;
 	}
-#endif //_HAS_XSTREAM_
 
 #ifdef RTMSG
         rtmessageCVRThreadExit = true;
@@ -2168,27 +1483,6 @@ int CVR::cvr_close()
 #endif
         // Close local stream session
         if (init_flag) {
-#ifdef _HAS_XSTREAM_
-            if (_streamFd > 0) {
-
-                if(cvr_key_frame) {
-                    free(cvr_key_frame);
-                    cvr_key_frame = NULL;
-                }
-
-                if( 0 != objConsumer.StreamClose(_streamFd, (cvr_flag & XSTREAM_AV_FLAG_MASK))) {
-                    RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR", "%s(%d): Stream Close failed\n", __FILE__, __LINE__);
-                }
-                else {
-                    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR", "%s(%d): Stream Close success\n", __FILE__, __LINE__);
-                }
-                _streamFd = -1;
-                cvr_frame = NULL;
-
-                cvr_flag &= ~XSTREAM_AUDIO_FLAG;
-                cvr_flag &= ~XSTREAM_VIDEO_FLAG;
-            }
-#else
             if(cvr_flag & RDKC_STREAM_FLAG_AUDIO) {
                 recorder->StreamClose(cvr_flag);
 
@@ -2199,8 +1493,6 @@ int CVR::cvr_close()
 
                 cvr_flag &= ~RDKC_STREAM_FLAG_VIDEO ;
             }
-#endif //_HAS_XSTREAM_
-
 #if defined ( ENABLE_PIPEWIRE )
 	    pws_StreamClose(&pwsdata,&frame_info);
 #endif /* ENABLE_PIPEWIRE */
@@ -2209,7 +1501,7 @@ int CVR::cvr_close()
 #if !defined ( CVR_PLATFORM_RPI )
         // Close hwtimer
         CVR::amba_hwtimer_exit(hwtimer_fd);
-		hwtimer_fd = -1;
+        hwtimer_fd = -1;
 #endif /* CVR_PLATFORM_RPI */
 
         unlink(LOCK_FILENAME_CVR_DAEMON);
@@ -2236,15 +1528,91 @@ void CVR::reload_config()
 int main(int argc, char *argv[])
 {
         cvr_provision_info_t CloudRecorderInfo;
-
-        rdk_logger_init("/etc/debug.ini");
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s start ...\n", __FILE__);
-
-        memset(&CloudRecorderInfo, 0, sizeof(cvr_provision_info_t));
+        const char* debugConfigFile = NULL;
+        const char* configFilePath = NULL;
+        int itr=0;
 
         // Init signal handler
         (void) signal(SIGTERM, CVR::self_term);
         (void) signal(SIGUSR1, CVR::reload_config);
+         unsigned short kvsclip_audio =0;/* audio enable flag */
+         int streamId = DEF_CVR_CHANNEL;
+         uint64_t storageMemory=0;
+         while (itr < argc)
+         {
+             if(strcmp(argv[itr],"--debugconfig")==0)
+             {
+                 itr++;
+                 if (itr < argc)
+                 {
+                     debugConfigFile = argv[itr];
+                 }
+                 else
+                 {
+                     break;
+                 }
+             }
+
+             if(strcmp(argv[itr],"--configFilePath")==0)
+             {
+                 itr++;
+                 if (itr < argc)
+                 {
+                     configFilePath = argv[itr];
+                 }
+                 else
+                 {
+                     break;
+                 }
+             }
+
+	     if(strcmp(argv[itr],"--kvsAudioEnabled")==0)
+             {
+                 itr++;
+                 if (itr < argc)
+                 {
+                     kvsclip_audio = (unsigned short) atoi(argv[itr]);
+                }
+                else
+                {
+                    break;
+                }
+             }
+
+	     if(strcmp(argv[itr],"--streamId")==0)
+             {
+                 itr++;
+                 if (itr < argc)
+                 {
+                     streamId = (unsigned short) atoi(argv[itr]);
+                 }
+                 else
+                 {
+                     break;
+                 }
+             }
+
+	     if(strcmp(argv[itr],"--sdkMem")==0)
+             {
+                 itr++;
+                 if (itr < argc)
+                 {
+                     storageMemory  = (uint64_t) atoi(argv[itr]);
+                 }
+                 else
+                 {
+                     break;
+                 }
+              }
+
+              itr++;
+         }
+
+         if(rdk_logger_init(debugConfigFile) == 0)
+         {
+	     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s rdk logger enabled \n", __FILE__);;
+         }
+             memset(&CloudRecorderInfo, 0, sizeof(cvr_provision_info_t));
 
 	/* Registering callback function for Breakpadwrap Function */
 #ifdef BREAKPAD
@@ -2256,7 +1624,7 @@ int main(int argc, char *argv[])
 
         cvr_object.setCVRStreamId(DEF_CVR_CHANNEL);
 
-	int ret = cvr_object.cvr_init(argc,argv,&CloudRecorderInfo);
+	int ret = cvr_object.cvr_init(kvsclip_audio,&CloudRecorderInfo,storageMemory);
 
 	if(CVR_FAILURE == ret) {
 		goto error_exit;

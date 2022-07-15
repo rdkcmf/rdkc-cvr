@@ -68,10 +68,6 @@ CFLAGS  += -D_HAS_XSTREAM_
 LIBS    += -Wl,-rpath-link=$(PROJ_ROOT)/vendor/img/fs/shadow_root/usr/lib
 endif
 
-ifeq ($(XCAM_MODEL), SCHC2)
-CFLAGS +=-DXCAM2
-endif
-
 #FRAME_CVR
 INSTALL = install
 RM = rm
@@ -83,7 +79,12 @@ ifeq ($(XCAM_MODEL), XHC3)
 CFLAGS +=-DXHC3
 SRC  += upload/kvsupload.cpp core/osi_cvr_daemon.cpp
 else
+ifeq ($(XCAM_MODEL), SCHC2)
+CFLAGS +=-DXCAM2
+SRC  += upload/kvsupload.cpp core/osi_cvr_daemon.cpp
+else
 SRC  += upload/kvsupload.cpp core/cvr_daemon.cpp
+endif
 endif
 endif
 OBJ = $(SRC:.cpp=.o)

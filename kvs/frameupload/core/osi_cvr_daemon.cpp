@@ -86,8 +86,9 @@ CVR::CVR(): init_flag(0),
 	iskvsInitDone(false),
 	iskvsStreamInitDone(false),
 	kvsclip_audio(0),
-	kvsclip_highmem(0),
-	m_storageMem(0)
+	m_storageMem(0),
+        m_streamdump(0),
+        dumpfp(NULL)
 {
 #ifdef RTMSG
 	rtmessageCVRThreadExit = false;
@@ -325,7 +326,6 @@ void CVR::cvr_init_audio_stream()
 int CVR::cvr_check_rfcparams()
 {
 	/* set cvr audio through RFC files */
-        char value[MAX_SIZE] = {0};
         char usr_value[8] = {0};
         char *configParam = NULL;
         int prev_cvr_audio_status =  cvr_audio_status;
@@ -343,14 +343,6 @@ int CVR::cvr_check_rfcparams()
 	else {
                 cvr_audio_status = CVR_AUDIO_DISABLED;
                 RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR", "%s(%d): setting CVR audio status to disable.\n", __FILE__, __LINE__);
-        }
-
-        //RFC check for kvs smartrc
-        memset(value,0,MAX_SIZE);
-        if(RDKC_SUCCESS == GetValueFromRFCFile(RFCFILE, KVS_SMARTRC, value)) {
-                if( strcmp(value, RDKC_TRUE) == 0 ) {
-                            kvsclip_highmem = 1;
-                    }
         }
 
         if( prev_cvr_audio_status != cvr_audio_status ) {
@@ -383,44 +375,6 @@ int CVR::cvr_check_rfcparams()
         }
 }
 
-/** @description: Checks if the feature is enabled via RFC
- *  @param[in] rfc_feature_fname: RFC feature filename
- *  @param[in] plane1: RFC parameter name
- *  @return: bool
- */
-bool CVR::check_enabled_rfc_feature(char*  rfc_feature_fname, char* feature_name)
-{
-    /* set cvr audio through RFC files */
-    char value[MAX_SIZE] = {0};
-
-    if((NULL == rfc_feature_fname) ||
-       (NULL == feature_name)) {
-        return false;
-    }
-
-    /* Check if RFC configuration file exists */
-    if( RDKC_SUCCESS == IsRFCFileAvailable(rfc_feature_fname)) {
-        /* Get the value from RFC file */
-        if( RDKC_SUCCESS == GetValueFromRFCFile(rfc_feature_fname, feature_name, value) ) {
-            if( strcmp(value, RDKC_TRUE) == 0) {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s is enabled via RFC.\n",__FILE__, __LINE__, feature_name);
-                return true;
-            } else {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s is disabled via RFC.\n",__FILE__, __LINE__, feature_name);
-                return false;
-            }
-        }else {
-                RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s is not available in rfc file.\n",__FILE__, __LINE__, feature_name);
-                return false;
-        }
-        /* If RFC file is not present, disable the featur */
-    } else {
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): rfc feature file %s is not present hence %s is disabled via RFC\n",__FILE__, __LINE__, rfc_feature_fname,feature_name);
-        return false;
-    }
-    return false;
-}
-
 int CVR::getCVRStreamId()
 {
   return m_streamid;
@@ -432,11 +386,12 @@ void CVR::setCVRStreamId(int streamid)
 }
 
 /** @description: initialize cvr
- *  @param[in] argv - char pointer
+ *  @param[in] isAudio - audio status
  *  @param[in] pCloudRecorderInfo - CloudRecorderConf pointer
+ *  @param[in] storageMemory - kvs storage in bytes
  *  @return: CVR_Failure is failed , CVR_SUCCESS if success
  */
-int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInfo,uint64_t storageMemory=0)
+int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInfo,const int& streamdump,uint64_t storageMemory=0)
 {
 	int rdkc_ret = 1;
         int iscvrenabled = 0;
@@ -458,8 +413,8 @@ int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInf
 
         kvsclip_audio = isAudio;/* audio enable flag */
         m_storageMem = storageMemory;
-
-        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d \n", __FILE__, __LINE__, kvsclip_audio);
+        m_streamdump = streamdump;
+        RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip_audio : %d m_storageMem : %llu, m_streamdump : %d\n", __FILE__, __LINE__, kvsclip_audio,m_storageMem,m_streamdump);
         
         // Init cvr flag
         cvr_flag = XSTREAM_VIDEO_FLAG ;       // Video is must
@@ -629,7 +584,7 @@ bool CVR::createkvsstream(int stream_id, unsigned short recreateflag)
     if ( false == iskvsStreamInitDone )
     {
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Invoking kvsStreamInit \n", __FILE__, __LINE__ );
-        ret_kvs = kvsStreamInit(kvsclip_audio, kvsclip_highmem, recreateflag);
+        ret_kvs = kvsStreamInit(kvsclip_audio, recreateflag);
         if ( true == ret_kvs )
         {
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsStreamInit success \n", __FILE__, __LINE__);
@@ -732,7 +687,22 @@ int CVR::pushFrames(frameInfoH264* frameInfo,
 		}
 #endif //DEBUG_DUMP_H264
 
-        ret_kvs = kvsUploadFrames(kvsclip_highmem, frameInfoTmp, fileName, isEOF);
+       if (m_streamdump) {
+           if( XSTREAM_STREAM_TYPE_AAC != frameInfoTmp.stream_type ) {
+	       int data_bytes = 0;
+               if( NULL != dumpfp ) {
+                   data_bytes = fwrite( ( char * ) frameInfoTmp.frame_ptr, 1, frameInfoTmp.frame_size, dumpfp );
+                   if ( data_bytes <= 0 ) {
+                       RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR","%s(%d) errmsg(%d)=%s!\n", __FILE__, __LINE__, errno, strerror( errno ) );
+                       return false;
+                   } else {
+                       RDK_LOG( RDK_LOG_TRACE1, "LOG.RDK.CVR","%s(%d) Written bytes %d...\n", __FILE__, __LINE__, data_bytes );
+                   }
+               }
+           }
+        }
+
+        ret_kvs = kvsUploadFrames(frameInfoTmp, fileName, isEOF);
 
         RDK_LOG( RDK_LOG_DEBUG, "LOG.RDK.CVR","Pushing the Frames to KVS \n");
         if(isEOF)
@@ -991,6 +961,15 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
         // Generate the file name which used to save CVR clip
         cvr_starttime = start_t.tv_sec;
 
+        if(m_streamdump) {
+            memset(fpath, '\0', sizeof(fpath));
+            snprintf(fpath, sizeof(fpath), "%s/%s.es", CVR_CLIP_PATH, file_name);
+            dumpfp = fopen(fpath, "wo+" );
+            if ( NULL == dumpfp ) {
+                RDK_LOG( RDK_LOG_ERROR, "LOG.RDK.CVR", "%s(%d) :open video file open error\n", __FILE__, __LINE__ );
+             }
+        }
+
         //notify smart thumbnail clip creation started
         if(smartTnEnabled)
         {
@@ -1009,7 +988,6 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","(%d): stream error in pushFrames\n", __LINE__);
                 break;
             }
-
             idrFrameCount++;
 
             has_an_iframe = 0;
@@ -1167,6 +1145,13 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             totalFramesinClip = 0;
             strcpy(fileName, file_name);
 
+            if(m_streamdump) {
+                if ( NULL != dumpfp ) {
+                    fclose( dumpfp );
+                    dumpfp = NULL;
+                }
+            }
+
             //if local stream error is met while creating clip discard the clip sine it's an incomplete ts clip
             if( 0 == local_stream_err ) {
                 long long int fileIndex = atoll(file_name);
@@ -1276,6 +1261,7 @@ int main(int argc, char *argv[])
     unsigned short kvsclip_audio =0;/* audio enable flag */
     int streamId = DEF_CVR_CHANNEL;
     uint64_t storageMemory=0;
+    int streamdump=0;
     while (itr < argc)
     {
         if(strcmp(argv[itr],"--debugconfig")==0)
@@ -1343,10 +1329,23 @@ int main(int argc, char *argv[])
             }
         }
 
+        if(strcmp(argv[itr],"--dump")==0)
+        {
+            itr++;
+            if (itr < argc)
+            {
+               streamdump  = (int) atoi(argv[itr]);
+            }
+            else
+            {
+                break;
+            }
+        }
+
         itr++;
     }
 
-    if(rdk_logger_init(debugConfigFile) == 0) 
+    if(rdk_logger_init(debugConfigFile) == 0)
     {
 	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s rdk logger enabled \n", __FILE__);;
     }
@@ -1362,7 +1361,7 @@ int main(int argc, char *argv[])
     CVR cvr_object;
     cvr_object.setCVRStreamId(streamId);
 
-    int ret = cvr_object.cvr_init(kvsclip_audio,&CloudRecorderInfo,storageMemory);
+    int ret = cvr_object.cvr_init(kvsclip_audio,&CloudRecorderInfo,streamdump,storageMemory);
     if(CVR_FAILURE == ret) {
 	goto error_exit;
     }

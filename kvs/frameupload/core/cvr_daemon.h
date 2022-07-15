@@ -220,7 +220,6 @@ class CVR : public kvsUploadCallback
 #endif //_HAS_XSTREAM_
       int m_streamid;
       unsigned short kvsclip_audio;/* audio enable flag */
-      unsigned short kvsclip_highmem;/* highmem flag */
       static int top;
       static float low_bound_motion_score;
       /* rtmessage */
@@ -260,7 +259,7 @@ class CVR : public kvsUploadCallback
     public:
       CVR();
       ~CVR();
-      int cvr_init(int argc, char **argv,cvr_provision_info_t *pCloudRecorderInfo);
+      int cvr_init(unsigned short kvsclip_audio,cvr_provision_info_t *pCloudRecorderInfo,uint64_t storageMemory = 0);
       void do_cvr(void * pCloudRecorderInfo);
       int cvr_close();
       static volatile sig_atomic_t term_flag;

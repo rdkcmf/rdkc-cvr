@@ -175,9 +175,6 @@ typedef struct _CustomData {
   //Indicating that the clip has audio
   unsigned short gkvsclip_audio;
 
-  //Indicating SDK high mem settings
-  unsigned short gkvsclip_highmem;
-
   // key:     trackId
   // value:   whether application has received the first frame for trackId.
   bool stream_started;
@@ -307,28 +304,24 @@ class SampleDeviceInfoProvider : public DefaultDeviceInfoProvider {
   device_info_t getDeviceInfo() override {
     auto device_info = DefaultDeviceInfoProvider::getDeviceInfo();
     LOG_INFO("SampleDeviceInfoProvider : stream id :" << m_stream_id );
-    if(data.gkvsclip_highmem) {
+    device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM1;
+    switch (m_stream_id) {
+    case 0 :
         device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM1;
-    } else {
-        switch (m_stream_id) {
-        case 0 :
-            device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM1;
-            break;
-        case 1 :
-            device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM2;
-            break;
-        case 2 :
-            device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-            break;
-        case 3 :
-            device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-            break;
-        default:
-            device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
-            break;
-        }
+        break;
+    case 1 :
+        device_info.storageInfo.storageSize = STORAGE_SIZE_STREAM2;
+        break;
+    case 2 :
+        device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
+        break;
+    case 3 :
+        device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
+        break;
+    default:
+        device_info.storageInfo.storageSize = DEFAULT_STORAGE_SIZE_STREAM;
+        break;
     }
-
     if (data.storageMem != 0 && data.storageMem >= MIN_STORGE_SIZE && data.storageMem <= MAX_STORAGE_SIZE_STREAM) {
         device_info.storageInfo.storageSize = data.storageMem;
     }
@@ -1038,14 +1031,13 @@ int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0)
 }
 
 //kvs_video_stream init
-int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highmem, unsigned short& contentchangestatus)
+int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& contentchangestatus)
 {
     bool ret = false;
 
     //update custom data parameters
     data.gkvsclip_audio = kvsclip_audio;
-    data.gkvsclip_highmem = kvsclip_highmem;
-    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): audio=%d, kvsclip_highmem =%d\n", __FILE__, __LINE__, kvsclip_audio,kvsclip_highmem);
+    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): audio=%d \n", __FILE__, __LINE__, kvsclip_audio);
 
     //In normal case init then recreate
     if( 0 == contentchangestatus )
@@ -1072,12 +1064,11 @@ int kvsStreamInit( unsigned short& kvsclip_audio, unsigned short& kvsclip_highme
 }
 
 #ifdef _HAS_XSTREAM_
-int kvsUploadFrames(unsigned short& kvsclip_highmem, frameInfoH264 frameData,char* filename, bool isEOF = false ) {
+int kvsUploadFrames(frameInfoH264 frameData,char* filename, bool isEOF = false ) {
 #else
-int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,char* filename, bool isEOF = false ) {
+int kvsUploadFrames(RDKC_FrameInfo frameData,char* filename, bool isEOF = false ) {
 #endif //_HAS_XSTREAM_
     FRAME_FLAGS kinesis_video_flags = FRAME_FLAG_NONE;
-    unsigned short cliphighmem = kvsclip_highmem;
     static int single_clip_size=0;
     static int frame_dropped_count=0;
     static int frame_dropped_flag=0;
@@ -1089,12 +1080,6 @@ int kvsUploadFrames(unsigned short& kvsclip_highmem, RDKC_FrameInfo frameData,ch
     int retstatus=0;
     size_t buffer_size=0;
     if(false == isEOF) {
-        if( data.gkvsclip_highmem != cliphighmem )
-        {
-            RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : highmem flag change between default data.gkvsclip_highmem : %d, kvsclip_highmem : %d\n", __FILE__, __LINE__, data.gkvsclip_highmem,cliphighmem);
-            return 1;
-        }
-
         if( isstreamerror_reported )
         {
             RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): Recreating stream : isstreamerror reported as TRUE : %d \n", __FILE__, __LINE__, isstreamerror_reported);
