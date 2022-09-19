@@ -23,6 +23,7 @@
 #ifdef BREAKPAD
 #include "breakpadwrap.h" 
 #endif
+#include "telemetry_busmessage_sender.h"
 
 #if defined ( ENABLE_PIPEWIRE )
 #include "pwstream.h"
@@ -662,6 +663,7 @@ int CVR::cvr_init(unsigned short isAudio,cvr_provision_info_t *pCloudRecorderInf
 
         // Check camera has polling cvr config from server?
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): Wait for xfinity polling config done.Timeout is %d seconds.\n", __FILE__, __LINE__, check_polling_config_timeout);
+        t2_event_d("KVS_ERR_WaitingCfg", 1);
 
 #if !defined ( CVR_PLATFORM_RPI )
         while (check_polling_config_timeout > 0 && !term_flag)
@@ -900,6 +902,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 iscvrenabled = atoi(CloudRecorderInfo->enable);
                 file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
                 RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d, file_len=%d!\n", __LINE__, iscvrenabled,file_len);
+                t2_event_s("KVS_INFO_CloudRcdrOff_split", "Reload Cloud Recorder Info is successful, enable=");
             }
             else
             {
@@ -1041,6 +1044,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 if (ccode < 0)
                 {
                     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
+                    t2_event_d("KVS_ERR_ReadFrame", 1);
                     local_stream_err = 1;
                     break;
                 }
@@ -1162,6 +1166,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     file_len = atoi(CloudRecorderInfo->cvr_segment_info.duration);
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): CVR conf read value duration: %d.\n", __FILE__, __LINE__,file_len);
                     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","(%d): Reload Cloud Recorder Info is successful, enable=%d!\n", __LINE__, iscvrenabled);
+                    t2_event_s("KVS_INFO_CloudRcdrOff_split", "Reload Cloud Recorder Info is successful, enable=");
                 }
                 else
                 {
@@ -1184,6 +1189,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 if (ccode < 0)
                 {
                     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
+                    t2_event_d("KVS_ERR_ReadFrame", 1);
                     local_stream_err = 1;
                     break;
                 }
@@ -1226,6 +1232,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 if (ccode < 0)
                 {
                     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
+                    t2_event_d("KVS_ERR_ReadFrame", 1);
                     local_stream_err = 1;
                     break;
                 }
@@ -1268,6 +1275,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     if (ccode < 0)
                     {
                         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
+                        t2_event_d("KVS_ERR_ReadFrame", 1);
                         local_stream_err = 1;
                         break;
                     }
@@ -1314,6 +1322,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                     if (ccode < 0)
                     {
                         RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
+                        t2_event_d("KVS_ERR_ReadFrame", 1);
                         local_stream_err = 1;
                         break;
                     }
@@ -1343,6 +1352,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 if (ccode < 0)
                 {
                     RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Read frame error!\n", __FILE__, __LINE__);
+                    t2_event_d("KVS_ERR_ReadFrame", 1);
                     local_stream_err = 1;
                     break;
                 }
@@ -1376,6 +1386,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
             if(kvsclip_audio)
             {
                 RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s kvs clip has audio\n", __FILE__, __LINE__, file_name);
+                t2_event_d("KVS_INFO_AudioClip", 1);
             }
         }
 
@@ -1385,6 +1396,7 @@ void CVR::do_cvr(void * pCloudRecorderInfo)
                 video_stream_config_t *vs_conf = (video_stream_config_t*) v_stream_conf;
                 RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): CVR configuration: StreamID Resolution(W*H) FrameRate BitRate %d %d*%d %d %d \n", __FILE__, __LINE__,
                         (m_streamid & 0x0F), vs_conf->width, vs_conf->height, vs_conf->frame_rate, vs_conf->bit_rate);
+                t2_event_s("SYS_INFO_Resolution_split", "Bitrate ");
             } else {
                 RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Memory is not allocated for retreving stream confg!!. \n", __FILE__, __LINE__);
             }
@@ -1616,11 +1628,12 @@ int main(int argc, char *argv[])
 
 	/* Registering callback function for Breakpadwrap Function */
 #ifdef BREAKPAD
-	sleep(1);
+        sleep(1);
         BreakPadWrapExceptionHandler eh;
         eh = newBreakPadWrapExceptionHandler();
 #endif
-	CVR cvr_object;
+        t2_init("cvr");
+        CVR cvr_object;
 
         cvr_object.setCVRStreamId(DEF_CVR_CHANNEL);
 

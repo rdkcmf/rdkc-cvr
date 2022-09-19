@@ -51,6 +51,8 @@
 #include "pwstream.h"
 #endif
 
+#include "telemetry_busmessage_sender.h"
+
 using namespace std;
 using namespace std::chrono;
 using namespace com::amazonaws::kinesis::video;
@@ -531,10 +533,12 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 			    //epochtime_senttokvssdk, currenttime, epochfragmenttimecode_server, fragmentnumber, timediff
 			    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvsclip upload successful %s, %lld, %s, %lld \n",
                                __FILE__, __LINE__, persistedclip.c_str(), pFragmentAck->timestamp, pFragmentAck->sequenceNumber, time_diff.count());
+                            t2_event_d("KVS_INFO_ClipUpload", 1);
 			    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload persisted time and clip sent time:%llu,%llu\n",
                                __FILE__, __LINE__,std::chrono::duration_cast<std::chrono::milliseconds>(time_now.time_since_epoch()).count(), std::chrono::duration_cast<std::chrono::milliseconds>(firstframesenttime.time_since_epoch()).count());
 			    RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs upload stats:%lld,%lld,%lld\n",
                                __FILE__, __LINE__,time_diff.count(),avgtime_clipupload,totalclipcount);
+                            t2_event_s("KVSClip_split", "kvs upload stats:");
 
                             //erase found time from map
                             for ( auto& x: clipmapwithrealtime)
@@ -569,6 +573,7 @@ STATUS SampleStreamCallbackProvider::FragmentAckReceivedHandler(UINT64 custom_da
 
 			callbackObj->onUploadError(clipName.c_str(),"failed");
 			RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): kvsclip upload unsuccessful %s\n",__FILE__, __LINE__,clipName.c_str());
+                        t2_event_d("KVS_ERR_ClipUploadFail", 1);
 
 
                         //Iterate to find the right clip
@@ -827,6 +832,7 @@ void kinesisVideoStreamUninit(CustomData *data)
         data->kinesis_video_stream = NULL;
     }
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : kvs stream uninit done\n", __FILE__, __LINE__);
+    t2_event_d("KVS_INFO_StrmUnInit", 1);
 }
 
 void kinesisVideoStreamUninitSync(CustomData *data)
@@ -840,12 +846,14 @@ void kinesisVideoStreamUninitSync(CustomData *data)
         data->kinesis_video_stream = NULL;
     }
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : kvs stream uninit done\n", __FILE__, __LINE__);
+    t2_event_d("KVS_INFO_StrmUnInit", 1);
 }
 
 //recreate stream
 static bool recreate_stream(CustomData *data)
 {
     RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d) : Attempt to recreate kinesis video stream \n", __FILE__, __LINE__);
+    t2_event_d("KVS_ERR_RecreateClip", 1);
     kinesisVideoStreamUninit(data);
     //sleep required between free stream and recreate stream to avoid crash
     bool do_repeat = true;
@@ -860,6 +868,7 @@ static bool recreate_stream(CustomData *data)
 	catch (runtime_error &err)
 	{
 		RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d) : Failed to create kinesis video stream : retrying \n", __FILE__, __LINE__);
+                t2_event_d("KVS_ERR_CreateStream", 1);
 		this_thread::sleep_for(std::chrono::seconds(2));
 		retry++;
 		if ( retry > KVSINITMAXRETRY )
@@ -879,6 +888,7 @@ static bool recreate_stream(CustomData *data)
 //reset stream
 static bool reset_stream(CustomData *data) {
   RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d) : Attempt to reset kinesis video stream \n", __FILE__, __LINE__);
+  t2_event_d("KVS_ERR_RecreateClip", 1);
   bool do_repeat = true;
   bool status =  false;
   int retry=0;
@@ -947,6 +957,7 @@ void create_kinesis_video_frame(Frame *frame, const nanoseconds &pts, const nano
                     if (audiolastframetimestamp_prevsegment > 0 ) {
                         audiotimediff = (firstframetimestamp_nextsegment - audiolastframetimestamp_prevsegment)/NANO_MILLI_FACTOR;
                         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVRUPLOAD","%s(%d): [ AUDIO FRAME DIFF] Time diff between fist I Frame of next segment and last audio frame of previous segment : %lld\n", __FILE__, __LINE__, audiotimediff);
+                        t2_event_s("AudioBlip_split", "last audio frame of previous segment :");
                     }
                 } else {
                     videolastframetimestamp_prevsegment = timestamp;
@@ -1181,6 +1192,7 @@ int kvsUploadFrames(RDKC_FrameInfo frameData,char* filename, bool isEOF = false 
 
 
 	RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): kvs clip to server : %s \n", __FILE__, __LINE__,clipName.c_str());
+        t2_event_s("KVS_INFO_ClipGen", "kvs clip to server :");
         RDK_LOG(RDK_LOG_DEBUG, "LOG.RDK.CVR", "Setting the Key Frame flag (very first frame)\n");
         if ( (frameData.pic_type == 1) || (frameData.pic_type == 2))
         {
@@ -1218,6 +1230,7 @@ int kvsUploadFrames(RDKC_FrameInfo frameData,char* filename, bool isEOF = false 
     if(isEOF) {
         RDK_LOG( RDK_LOG_DEBUG,"LOG.RDK.CVR","%s(%d): %s Sending EoFr\n", __FILE__, __LINE__,data.clip_name );
         RDK_LOG( RDK_LOG_INFO,"LOG.RDK.CVR","%s(%d): %s kvs clip size:%d\n", __FILE__, __LINE__,data.clip_name, single_clip_size );
+        t2_event_s("KVSClipSize_split", "kvs clip size:");
         single_clip_size = 0;
 
         //compare clip sent time with clip persisted time to detect hang in application
@@ -1227,6 +1240,7 @@ int kvsUploadFrames(RDKC_FrameInfo frameData,char* filename, bool isEOF = false 
         //To maintain 60 seconds send/ack time gap and to avoid if the second clip's ack is delayed than sending
         if( cliptime_diff.count() > CVR_THRESHHOLD_COUNT_IN_MILLISECONDS ) {
             RDK_LOG( RDK_LOG_ERROR,"LOG.RDK.CVR","%s(%d): Failed to get clip upload status - Timeout : %lld : attempt to reset stream \n", __FILE__, __LINE__, cliptime_diff.count());
+            t2_event_d("KVS_ERR_ClipUpldTO", 1);
 
             //Iterate and comapre clip map and clip queue for clip name and send failure notification
             //Also Flush the clip except the latest one
