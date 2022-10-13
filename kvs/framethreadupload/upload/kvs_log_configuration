@@ -16,21 +16,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-ifneq ($(XCAM_MODEL), XHB1)
-ifneq ($(XCAM_MODEL), XHC3)
-SUBDIRS += clipupload/upload
-SUBDIRS += clipupload/core
-endif
-endif
-SUBDIRS += frameupload
-SUBDIRS += framethreadupload
-all:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@ || exit 1; \
-	done
+log4cplus.rootLogger=ERROR, KvsConsoleAppender
 
-install clean uninstall mrproper:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@; \
-	done
+#log4cplus.logger.MemoryCheck=TRACE, KvsConsoleAppender
 
+#KvsConsoleAppender:
+log4cplus.appender.KvsConsoleAppender=log4cplus::ConsoleAppender
+log4cplus.appender.KvsConsoleAppender.layout=log4cplus::PatternLayout
+log4cplus.appender.KvsConsoleAppender.layout.ConversionPattern=[%-5p][%d] %m%n
+
+#KvsFileAppender
+#log4cplus.appender.KvsFileAppender=log4cplus::DailyRollingFileAppender
+#log4cplus.appender.KvsFileAppender.File=./log/kvs.log
+#log4cplus.appender.KvsFileAppender.Schedule=HOURLY
+#log4cplus.appender.KvsFileAppender.CreateDirs=true
+#log4cplus.appender.KvsFileAppender.layout=log4cplus::PatternLayout
+#log4cplus.appender.KvsFileAppender.layout.ConversionPattern=[%D]-%p-%m%n

@@ -1,3 +1,4 @@
+/**
 ##########################################################################
 # If not stated otherwise in this file or this component's LICENSE
 # file the following copyright and licenses apply:
@@ -16,21 +17,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-ifneq ($(XCAM_MODEL), XHB1)
-ifneq ($(XCAM_MODEL), XHC3)
-SUBDIRS += clipupload/upload
-SUBDIRS += clipupload/core
-endif
-endif
-SUBDIRS += frameupload
-SUBDIRS += framethreadupload
-all:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@ || exit 1; \
-	done
+**/
+#ifndef _KVS_UPLOAD_API_H
+#define _KVS_UPLOAD_API_H
 
-install clean uninstall mrproper:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@; \
-	done
+#include "kvsuploadCallback.h"
 
+int kvsInit(kvsUploadCallback* callback, int stream_id, uint64_t storageMem = 0);
+int kvsStreamInit(unsigned short& audioenabled, unsigned short& contentchangestatus);
+#ifdef _HAS_XSTREAM_
+int kvsUploadFrames(frameInfoH264 frameData, char* filename, bool isEOF = false );
+#else
+int kvsUploadFrames(RDKC_FrameInfo frameData, char* fileName, bool isEOF = false );
+#endif //_HAS_XSTREAM_
+
+#endif

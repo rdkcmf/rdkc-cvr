@@ -1,3 +1,4 @@
+/**
 ##########################################################################
 # If not stated otherwise in this file or this component's LICENSE
 # file the following copyright and licenses apply:
@@ -16,21 +17,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-ifneq ($(XCAM_MODEL), XHB1)
-ifneq ($(XCAM_MODEL), XHC3)
-SUBDIRS += clipupload/upload
-SUBDIRS += clipupload/core
-endif
-endif
-SUBDIRS += frameupload
-SUBDIRS += framethreadupload
-all:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@ || exit 1; \
-	done
+**/
+#ifndef _KVS_UPLOAD_CALLBACK_API_H
+#define _KVS_UPLOAD_CALLBACK_API_H
 
-install clean uninstall mrproper:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@; \
-	done
+class kvsUploadCallback
+{
+	public:
 
+		kvsUploadCallback(){}
+		virtual ~kvsUploadCallback(){}
+		virtual void onUploadSuccess(char* cvrRecName) = 0;
+		virtual void onUploadError(char* cvrRecName, const char* streamStatus) = 0;
+};
+#endif

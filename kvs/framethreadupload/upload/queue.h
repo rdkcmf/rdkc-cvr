@@ -1,3 +1,4 @@
+/**
 ##########################################################################
 # If not stated otherwise in this file or this component's LICENSE
 # file the following copyright and licenses apply:
@@ -16,21 +17,44 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ##########################################################################
-ifneq ($(XCAM_MODEL), XHB1)
-ifneq ($(XCAM_MODEL), XHC3)
-SUBDIRS += clipupload/upload
-SUBDIRS += clipupload/core
-endif
-endif
-SUBDIRS += frameupload
-SUBDIRS += framethreadupload
-all:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@ || exit 1; \
-	done
+**/
 
-install clean uninstall mrproper:
-	@for i in `echo $(SUBDIRS)`; do \
-		$(MAKE) -C $$i $@; \
-	done
+#include "string.h"
+#include <queue>
+#include <mutex>
+
+class ClipQueue
+{
+ private:
+  std::queue<std::string> queue_;
+  std::mutex mutex_;
+
+ public:
+  std::string remove()
+  {
+    std::unique_lock<std::mutex> mlock(mutex_);
+    auto clipname = queue_.front();
+    queue_.pop();
+    return clipname;
+  }
+
+  void add(const std::string& clipname)
+  {
+    std::unique_lock<std::mutex> mlock(mutex_);
+    queue_.push(clipname);
+  }
+
+  int size(){
+    return queue_.size();
+  }
+
+  void clear()
+  {
+    std::unique_lock<std::mutex> mlock(mutex_);
+    while(queue_.size()  > 0) {
+      queue_.pop();
+    }
+  }
+
+};
 
