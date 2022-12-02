@@ -78,20 +78,10 @@ gboolean on_message(GstBus *bus,GstMessage *message, gpointer userData);
 /* load_default_cvr_gstreamer_value() */
 void load_default_cvr_gstreamer_value()
 {
-    if( CAMERA_V4L2_SRC == encamerasrc )
-    {
         stCvrGstRpi.width = 1280;
         stCvrGstRpi.height = 720;
 
         stCvrGstRpi.framerate  = 30;
-    }
-    else if( ( CAMERA_LIBCAMERA_SRC == encamerasrc ) || ( CAMERA_PIPEWIRE_SRC == encamerasrc ) )
-    {
-        stCvrGstRpi.width = 640;
-        stCvrGstRpi.height = 480;
-
-        stCvrGstRpi.framerate  = 15;
-    }
 
     strcpy( stCvrGstRpi.avideotype, "video/x-raw" );
 }
@@ -242,24 +232,11 @@ void start_stream()
 
     }
 
-    if( ( CAMERA_V4L2_SRC == encamerasrc ) || ( CAMERA_PIPEWIRE_SRC == encamerasrc ) )
-    {
-        filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
+    filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
                                       "width", G_TYPE_INT, stCvrGstRpi.width,
                                       "height", G_TYPE_INT, stCvrGstRpi.height,
                                       "framerate", GST_TYPE_FRACTION, stCvrGstRpi.framerate, 1,
                                       NULL);
-    }
-    else if( CAMERA_LIBCAMERA_SRC == encamerasrc )
-    {
-        filtercaps = gst_caps_new_simple (stCvrGstRpi.avideotype,
-                                      "width", G_TYPE_INT, stCvrGstRpi.width,
-                                      "height", G_TYPE_INT, stCvrGstRpi.height,
-                                      "framerate", GST_TYPE_FRACTION, stCvrGstRpi.framerate, 1,
-				      "format", G_TYPE_STRING, "NV12",
-                                      NULL);
-
-    }
 
     g_object_set (G_OBJECT (filter), "caps", filtercaps, NULL);
 
